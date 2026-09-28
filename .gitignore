@@ -1,0 +1,27 @@
+# Local development / tool data
+.appdata/
+.dotnet/
+.nuget/
+.pnpm-store/
+.templateengine/
+
+# .NET
+**/bin/
+**/obj/
+.vs/
+
+# Frontend
+**/node_modules/
+**/dist/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
