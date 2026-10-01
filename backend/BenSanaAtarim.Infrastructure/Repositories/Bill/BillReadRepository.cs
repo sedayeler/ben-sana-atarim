@@ -14,8 +14,16 @@ public sealed class BillReadRepository(BenSanaAtarimDbContext context) : ReadRep
 
     public async Task<Bill?> GetWithParticipantsAndItemsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await Entities.Include(bill => bill.Participants)
-            .Include(bill => bill.Items)
-            .SingleOrDefaultAsync(bill => bill.Id == id, cancellationToken);
+        return await IncludeParticipantsAndItems().SingleOrDefaultAsync(bill => bill.Id == id, cancellationToken);
+    }
+
+    public async Task<Bill?> GetByCodeWithParticipantsAndItemsAsync(string code, CancellationToken cancellationToken = default)
+    {
+        return await IncludeParticipantsAndItems().SingleOrDefaultAsync(bill => bill.Code == code, cancellationToken);
+    }
+
+    private IQueryable<Bill> IncludeParticipantsAndItems()
+    {
+        return Entities.Include(bill => bill.Participants).Include(bill => bill.Items);
     }
 }
