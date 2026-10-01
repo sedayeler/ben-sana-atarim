@@ -1,5 +1,7 @@
+using BenSanaAtarim.Application.AI;
 using BenSanaAtarim.Application.Repositories;
 using BenSanaAtarim.Application.Services;
+using BenSanaAtarim.Infrastructure.AI;
 using BenSanaAtarim.Infrastructure.Persistence;
 using BenSanaAtarim.Infrastructure.Repositories;
 using BenSanaAtarim.Infrastructure.Services;
@@ -14,6 +16,8 @@ public static class ServiceRegistration
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddDbContext<BenSanaAtarimDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("PostgreSQL")));
+
+        services.AddHttpClient<IReceiptParser, GeminiReceiptParser>(client => client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/"));
 
         services.AddScoped(typeof(IReadRepository<>), typeof(ReadRepository<>));
         services.AddScoped(typeof(IWriteRepository<>), typeof(WriteRepository<>));
