@@ -9,21 +9,22 @@ using BenSanaAtarim.Domain.Enums;
 namespace BenSanaAtarim.Infrastructure.Services;
 
 public sealed class BillService(IBillReadRepository billReadRepository, IBillWriteRepository billWriteRepository,
-    IParticipantWriteRepository participantWriteRepository, IBillItemWriteRepository billItemWriteRepository,
+    IParticipantReadRepository participantReadRepository, IParticipantWriteRepository participantWriteRepository, IBillItemWriteRepository billItemWriteRepository,
     IItemSelectionReadRepository itemSelectionReadRepository, IItemSelectionWriteRepository itemSelectionWriteRepository) : IBillService
 {
     private const string CodeCharacters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private const int CodeLength = 12;
     private const int MaximumCodeGenerationAttempts = 10;
-    private const int MaximumHostNameLength = 50;
+    private const int MaximumUsernameLength = 50;
     private const int MaximumItemNameLength = 150;
 
-    public async Task<Bill> CreateBillAsync(string hostName, CancellationToken cancellationToken = default)
+    public async Task<Bill> CreateBillAsync(string hostUsername, CancellationToken cancellationToken = default)
     {
-        var normalizedHostName = NormalizeParticipantName(hostName, nameof(hostName));
+        var normalizedHostUsername = NormalizeParticipantUsername(hostUsername, nameof(hostUsername));
         var code = await GenerateUniqueCodeAsync(cancellationToken);
         var bill = new Bill(code);
-        bill.Participants.Add(new Participant(normalizedHostName, isHost: true));
+        await EnsureUsernameAvailableAsync(bill.Id, normalizedHostUsername, cancellationToken);
+        bill.Participants.Add(new Participant(normalizedHostUsername, isHost: true));
 
         return await billWriteRepository.AddAsync(bill, cancellationToken);
     }
@@ -43,15 +44,16 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return new BillDetails(bill, selections);
     }
 
-    public async Task<Participant> JoinAsync(string code, string participantName, CancellationToken cancellationToken = default)
+    public async Task<Participant> JoinAsync(string code, string username, CancellationToken cancellationToken = default)
     {
         var normalizedCode = NormalizeCode(code);
-        var normalizedName = NormalizeParticipantName(participantName, nameof(participantName));
+        var normalizedUsername = NormalizeParticipantUsername(username, nameof(username));
         var bill = await billReadRepository.GetByCodeWithParticipantsAndItemsAsync(normalizedCode, cancellationToken) ?? throw new KeyNotFoundException("Bill was not found.");
 
         EnsureActive(bill);
+        await EnsureUsernameAvailableAsync(bill.Id, normalizedUsername, cancellationToken);
 
-        var participant = new Participant(bill.Id, normalizedName, isHost: false);
+        var participant = new Participant(bill.Id, normalizedUsername, isHost: false);
         return await participantWriteRepository.AddAsync(participant, cancellationToken);
     }
 
@@ -272,20 +274,28 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return code.Trim().ToUpperInvariant();
     }
 
-    private static string NormalizeParticipantName(string name, string parameterName)
+    private static string NormalizeParticipantUsername(string username, string parameterName)
     {
-        if (string.IsNullOrWhiteSpace(name))
+        if (string.IsNullOrWhiteSpace(username))
         {
-            throw new ArgumentException("Participant name is required.", parameterName);
+            throw new ArgumentException("Participant username is required.", parameterName);
         }
 
-        var normalizedName = name.Trim();
-        if (normalizedName.Length > MaximumHostNameLength)
+        var normalizedUsername = username.Trim();
+        if (normalizedUsername.Length > MaximumUsernameLength)
         {
-            throw new ArgumentException($"Participant name cannot exceed {MaximumHostNameLength} characters.", parameterName);
+            throw new ArgumentException($"Participant username cannot exceed {MaximumUsernameLength} characters.", parameterName);
         }
 
-        return normalizedName;
+        return normalizedUsername;
+    }
+
+    private async Task EnsureUsernameAvailableAsync(Guid billId, string username, CancellationToken cancellationToken)
+    {
+        if (await participantReadRepository.UsernameExistsAsync(billId, username, cancellationToken))
+        {
+            throw new InvalidOperationException("A participant with this username already exists in the bill.");
+        }
     }
 
     private static BillItem CreateBillItem(ReceiptItemResult item)

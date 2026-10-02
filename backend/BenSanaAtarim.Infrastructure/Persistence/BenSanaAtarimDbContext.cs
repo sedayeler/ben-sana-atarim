@@ -5,10 +5,10 @@ namespace BenSanaAtarim.Infrastructure.Persistence;
 
 public sealed class BenSanaAtarimDbContext(DbContextOptions<BenSanaAtarimDbContext> options) : DbContext(options)
 {
-    public DbSet<Bill> Bills => Set<Bill>();
-    public DbSet<Participant> Participants => Set<Participant>();
-    public DbSet<BillItem> BillItems => Set<BillItem>();
-    public DbSet<ItemSelection> ItemSelections => Set<ItemSelection>();
+    public DbSet<Bill> bills => Set<Bill>();
+    public DbSet<Participant> participants => Set<Participant>();
+    public DbSet<BillItem> bill_items => Set<BillItem>();
+    public DbSet<ItemSelection> item_selections => Set<ItemSelection>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,7 +35,9 @@ public sealed class BenSanaAtarimDbContext(DbContextOptions<BenSanaAtarimDbConte
         modelBuilder.Entity<Participant>(entity =>
         {
             entity.HasKey(participant => participant.Id);
-            entity.Property(participant => participant.Name).IsRequired().HasMaxLength(50);
+            entity.Property(participant => participant.Username).IsRequired().HasMaxLength(50);
+            entity.Property<string>("UsernameNormalized").HasComputedColumnSql("lower(\"Username\")", stored: true).IsRequired();
+            entity.HasIndex("BillId", "UsernameNormalized").IsUnique();
         });
 
         modelBuilder.Entity<BillItem>(entity =>

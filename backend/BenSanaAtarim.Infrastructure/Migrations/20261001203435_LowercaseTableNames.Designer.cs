@@ -3,6 +3,7 @@ using System;
 using BenSanaAtarim.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BenSanaAtarim.Infrastructure.Migrations
 {
     [DbContext(typeof(BenSanaAtarimDbContext))]
-    partial class BenSanaAtarimDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261001203435_LowercaseTableNames")]
+    partial class LowercaseTableNames
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

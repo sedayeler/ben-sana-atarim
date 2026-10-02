@@ -22,6 +22,9 @@
 # IDE
 .vscode/
 
+# Local Codex project trust / preferences
+.codex/config.toml
+
 # OS
 .DS_Store
 Thumbs.db
