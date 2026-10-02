@@ -5,6 +5,7 @@ namespace BenSanaAtarim.Application.Repositories;
 public interface IBillReadRepository : IReadRepository<Bill>
 {
     Task<bool> CodeExistsAsync(string code, CancellationToken cancellationToken = default);
+    Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken = default);
     Task<Bill?> GetWithParticipantsAndItemsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Bill?> GetByCodeWithParticipantsAndItemsAsync(string code, CancellationToken cancellationToken = default);
 }

@@ -18,6 +18,8 @@ Uygulama katmanındaki mevcut sözleşmeler ve Infrastructure uygulaması şu ku
 - Participant'ın item seçmesi, seçimi kaldırması ve Quantity seçim adedini değiştirmesi.
 - Host'un item split type değerini değiştirmesi.
 - Participant'ın ready/unready durumunu değiştirmesi.
+- Seçimler tamamlandığında participant paylarını ve Bill toplamını hesaplama.
+- Host'un Bill'i finalize etmesi ve yeniden açması.
 
 Bu yetenekler şu anda service katmanındadır. API controller veya endpoint bulunmaz. Frontend boş bir başlangıç ekranıdır.
 
@@ -31,8 +33,6 @@ Participant kimliği için Bill'e katılırken `Username` kullanılır. Username
 
 ## MVP'de planlanan fakat henüz implement edilmemiş
 
-- Participant paylarının ve Bill toplamlarının hesaplanması.
-- Bill sonlandırma ve host tarafından yeniden açma akışı.
 - API endpoints/controllers.
 - SignalR ile realtime güncellemeler.
 - Frontend ürün akışı.

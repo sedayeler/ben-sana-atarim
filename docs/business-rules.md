@@ -50,7 +50,7 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Aynı participant aynı BillItem için yalnızca bir selection oluşturabilir.
 - `Quantity` item seçiminde seçilen adet sıfırdan büyük olmalıdır.
 - Bir `Quantity` item için toplam selection quantity hiçbir durumda `BillItem.Quantity` değerini aşamaz; bu iş kuralı eş zamanlı işlemlerde de korunmalıdır.
-- Bu eş zamanlılık kuralının uygulama yöntemi henüz seçilmemiştir.
+- Eş zamanlı seçim yazımları Bill satırı üzerinde PostgreSQL `FOR UPDATE` kilidiyle sıraya alınır.
 - `Shared` item seçiminde adet business anlamı taşımaz; kayıt `Quantity = 1` ile tutulur.
 - Shared selection quantity değeri değiştirilemez.
 - Participant bir selection ekler, kaldırır veya quantity değerini gerçekten değiştirirse ready durumu `false` yapılır.
@@ -72,7 +72,7 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 
 ## Bill sonlandırma
 
-Bu bölümdeki kurallar kesinleşmiştir ancak Bill sonlandırma akışı henüz uygulanmamıştır.
+Bu bölüm Bill sonlandırma ve yeniden açma kurallarını tanımlar.
 
 - Bill'i yalnızca host finalize edebilir.
 - Finalize için Bill'deki bütün participant'lar ready olmalıdır.
@@ -86,8 +86,11 @@ Bu bölümdeki kurallar kesinleşmiştir ancak Bill sonlandırma akışı henüz
 
 ## Hesaplama
 
-Bu bölümdeki kurallar kesinleşmiştir ancak hesaplama akışı henüz uygulanmamıştır.
+Bu bölüm hesaplama kurallarını tanımlar.
 
+- `Active` Bill'de bütün item seçimleri finalization için gereken dağılım koşullarını sağladığında hesap sonucu alınabilir; participant'ların ready olması gerekmez.
+- Seçimler eksikse hesaplama sonuç üretmez ve hata verir.
+- `Finalized` Bill'in hesap sonucu aynı kurallarla okunabilir.
 - `Quantity` item için participant tutarı `selected quantity * UnitPrice` olarak hesaplanır.
 - `Shared` item toplam tutarı `BillItem.Quantity * UnitPrice` olarak hesaplanır.
 - Her Shared item kendi selection grubunda bağımsız olarak dağıtılır.
@@ -109,4 +112,4 @@ Bu bölümdeki kurallar kesinleşmiştir ancak hesaplama akışı henüz uygulan
 
 ## Açık ürün kararları
 
-- Eş zamanlı Quantity kapasite çakışmasının kullanıcıya nasıl sunulacağı henüz kararlaştırılmadı. İş kuralı kesin olmakla birlikte eş zamanlılık uygulama yöntemi bu aşamada seçilmemelidir.
+- Eş zamanlı Quantity kapasite çakışmasının kullanıcıya nasıl sunulacağı henüz kararlaştırılmadı.

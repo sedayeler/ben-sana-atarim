@@ -12,6 +12,14 @@ public sealed class BillReadRepository(BenSanaAtarimDbContext context) : ReadRep
         return await Entities.AsNoTracking().AnyAsync(bill => bill.Code == code, cancellationToken);
     }
 
+    public async Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken = default)
+    {
+        return await Entities.AsNoTracking()
+            .Where(bill => bill.Code == code)
+            .Select(bill => (Guid?)bill.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<Bill?> GetWithParticipantsAndItemsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await IncludeParticipantsAndItems().SingleOrDefaultAsync(bill => bill.Id == id, cancellationToken);

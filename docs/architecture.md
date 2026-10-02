@@ -50,7 +50,7 @@ Entity setter'ları public değildir. Entity'lerde iş kuralı veya işlem metod
 - Bill, Participant, BillItem ve ItemSelection için entity için özel repository sözleşmeleri.
 - `IBillService` kullanım akışı sözleşmesi.
 - `IReceiptParser` AI entegrasyonu için arayüz.
-- Fiş okuma ve Bill ayrıntı sonuç modelleri.
+- Fiş okuma, Bill ayrıntı ve hesaplama sonuç modelleri.
 
 Application kalıcılık veya AI sağlayıcı uygulaması içermez.
 
@@ -66,6 +66,8 @@ Application kalıcılık veya AI sağlayıcı uygulaması içermez.
 - EF Core migration dosyaları; mevcut ilk migration `InitialCreate`dır.
 
 Mevcut mimari service merkezlidir. İş kararları `BillService` içinde uygulanır. Repository'ler sorgular ve private setter'lı durumun EF Core üzerinden kaydedilmesi için kullanılır.
+
+Bill üzerindeki mutasyonlar ve hesaplama, aynı Bill satırında PostgreSQL `FOR UPDATE` kilidi alan bir transaction içinde yürütülür. Bu, durum doğrulaması ve bağlı kayıt değişikliklerini aynı Bill için sıraya alır.
 
 ### API
 

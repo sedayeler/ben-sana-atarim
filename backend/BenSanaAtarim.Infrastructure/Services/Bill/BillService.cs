@@ -44,20 +44,85 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return new BillDetails(bill, selections);
     }
 
+    public Task<BillCalculationResult> CalculateAsync(Guid billId, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => CalculateLockedAsync(billId, token), cancellationToken);
+    }
+
+    private async Task<BillCalculationResult> CalculateLockedAsync(Guid billId, CancellationToken cancellationToken)
+    {
+        var bill = await GetBillAsync(billId, cancellationToken);
+        var selections = await GetSelectionsAsync(bill, cancellationToken);
+        EnsureCompleteDistribution(bill, selections);
+
+        var participantIds = bill.Participants.Select(participant => participant.Id).ToHashSet();
+        var itemTotals = participantIds.ToDictionary(participantId => participantId, _ => 0m);
+        decimal itemsTotal = 0;
+
+        foreach (var item in bill.Items)
+        {
+            var itemSelections = selections.Where(selection => selection.BillItemId == item.Id).ToArray();
+            var itemTotal = item.Quantity * item.UnitPrice;
+            itemsTotal += itemTotal;
+
+            if (item.SplitType == SplitType.Quantity)
+            {
+                foreach (var selection in itemSelections)
+                {
+                    itemTotals[selection.ParticipantId] += selection.Quantity * item.UnitPrice;
+                }
+            }
+            else
+            {
+                var shares = DistributeEqually(itemTotal, itemSelections.Select(selection => selection.ParticipantId).ToArray());
+                AddShares(itemTotals, shares);
+            }
+        }
+
+        var serviceChargeShares = DistributeEqually(bill.ServiceCharge, participantIds.ToArray());
+        var participantResults = bill.Participants
+            .OrderBy(participant => participant.Id)
+            .Select(participant => new ParticipantCalculationResult(
+                participant.Id,
+                participant.Username,
+                itemTotals[participant.Id],
+                serviceChargeShares[participant.Id],
+                itemTotals[participant.Id] + serviceChargeShares[participant.Id]))
+            .ToArray();
+
+        var total = itemsTotal + bill.ServiceCharge;
+        if (participantResults.Sum(participant => participant.Total) != total)
+        {
+            throw new InvalidOperationException("Calculated participant totals do not match the bill total.");
+        }
+
+        return new BillCalculationResult(bill.Id, itemsTotal, bill.ServiceCharge, total, participantResults);
+    }
+
     public async Task<Participant> JoinAsync(string code, string username, CancellationToken cancellationToken = default)
     {
         var normalizedCode = NormalizeCode(code);
         var normalizedUsername = NormalizeParticipantUsername(username, nameof(username));
-        var bill = await billReadRepository.GetByCodeWithParticipantsAndItemsAsync(normalizedCode, cancellationToken) ?? throw new KeyNotFoundException("Bill was not found.");
+        var billId = await billReadRepository.GetIdByCodeAsync(normalizedCode, cancellationToken) ?? throw new KeyNotFoundException("Bill was not found.");
+        return await ExecuteWithBillLockAsync(billId, token => JoinLockedAsync(billId, normalizedUsername, token), cancellationToken);
+    }
 
+    private async Task<Participant> JoinLockedAsync(Guid billId, string username, CancellationToken cancellationToken)
+    {
+        var bill = await GetBillAsync(billId, cancellationToken);
         EnsureActive(bill);
-        await EnsureUsernameAvailableAsync(bill.Id, normalizedUsername, cancellationToken);
+        await EnsureUsernameAvailableAsync(bill.Id, username, cancellationToken);
 
-        var participant = new Participant(bill.Id, normalizedUsername, isHost: false);
+        var participant = new Participant(bill.Id, username, isHost: false);
         return await participantWriteRepository.AddAsync(participant, cancellationToken);
     }
 
-    public async Task<Bill> ConfirmReceiptAsync(Guid billId, Guid hostParticipantId, ReceiptParseResult receipt, CancellationToken cancellationToken = default)
+    public Task<Bill> ConfirmReceiptAsync(Guid billId, Guid hostParticipantId, ReceiptParseResult receipt, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => ConfirmReceiptLockedAsync(billId, hostParticipantId, receipt, token), cancellationToken);
+    }
+
+    private async Task<Bill> ConfirmReceiptLockedAsync(Guid billId, Guid hostParticipantId, ReceiptParseResult receipt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(receipt);
 
@@ -93,7 +158,12 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return bill;
     }
 
-    public async Task<ItemSelection> SelectItemAsync(Guid billId, Guid participantId, Guid billItemId, int quantity = 1, CancellationToken cancellationToken = default)
+    public Task<ItemSelection> SelectItemAsync(Guid billId, Guid participantId, Guid billItemId, int quantity = 1, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => SelectItemLockedAsync(billId, participantId, billItemId, quantity, token), cancellationToken);
+    }
+
+    private async Task<ItemSelection> SelectItemLockedAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
         var participant = GetParticipant(bill, participantId);
@@ -120,7 +190,12 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return await itemSelectionWriteRepository.AddAsync(selection, cancellationToken);
     }
 
-    public async Task RemoveItemSelectionAsync(Guid billId, Guid participantId, Guid billItemId, CancellationToken cancellationToken = default)
+    public Task RemoveItemSelectionAsync(Guid billId, Guid participantId, Guid billItemId, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => RemoveItemSelectionLockedAsync(billId, participantId, billItemId, token), cancellationToken);
+    }
+
+    private async Task RemoveItemSelectionLockedAsync(Guid billId, Guid participantId, Guid billItemId, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
         var participant = GetParticipant(bill, participantId);
@@ -132,7 +207,12 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         await itemSelectionWriteRepository.DeleteAsync(selection, cancellationToken);
     }
 
-    public async Task<ItemSelection> ChangeItemSelectionQuantityAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken = default)
+    public Task<ItemSelection> ChangeItemSelectionQuantityAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => ChangeItemSelectionQuantityLockedAsync(billId, participantId, billItemId, quantity, token), cancellationToken);
+    }
+
+    private async Task<ItemSelection> ChangeItemSelectionQuantityLockedAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
         var participant = GetParticipant(bill, participantId);
@@ -159,7 +239,12 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return selection;
     }
 
-    public async Task ChangeItemSplitTypeAsync(Guid billId, Guid hostParticipantId, Guid billItemId, SplitType splitType, CancellationToken cancellationToken = default)
+    public Task ChangeItemSplitTypeAsync(Guid billId, Guid hostParticipantId, Guid billItemId, SplitType splitType, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => ChangeItemSplitTypeLockedAsync(billId, hostParticipantId, billItemId, splitType, token), cancellationToken);
+    }
+
+    private async Task ChangeItemSplitTypeLockedAsync(Guid billId, Guid hostParticipantId, Guid billItemId, SplitType splitType, CancellationToken cancellationToken)
     {
         if (!Enum.IsDefined(splitType))
         {
@@ -191,7 +276,12 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         await billItemWriteRepository.SetSplitTypeAsync(item, splitType, cancellationToken);
     }
 
-    public async Task<Participant> SetParticipantReadyAsync(Guid billId, Guid participantId, bool isReady, CancellationToken cancellationToken = default)
+    public Task<Participant> SetParticipantReadyAsync(Guid billId, Guid participantId, bool isReady, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => SetParticipantReadyLockedAsync(billId, participantId, isReady, token), cancellationToken);
+    }
+
+    private async Task<Participant> SetParticipantReadyLockedAsync(Guid billId, Guid participantId, bool isReady, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
         var participant = GetParticipant(bill, participantId);
@@ -204,12 +294,136 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return participant;
     }
 
+    public Task FinalizeAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => FinalizeLockedAsync(billId, hostParticipantId, token), cancellationToken);
+    }
+
+    private async Task FinalizeLockedAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken)
+    {
+        var bill = await GetBillAsync(billId, cancellationToken);
+        EnsureHost(bill, hostParticipantId);
+        EnsureActive(bill);
+
+        if (bill.Participants.Any(participant => !participant.IsReady))
+        {
+            throw new InvalidOperationException("All participants must be ready before the bill can be finalized.");
+        }
+
+        var selections = await GetSelectionsAsync(bill, cancellationToken);
+        EnsureCompleteDistribution(bill, selections);
+
+        await billWriteRepository.UpdateStatusAndParticipantsReadyAsync(bill, BillStatus.Finalized, participantsReady: true, cancellationToken);
+    }
+
+    public Task ReopenAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => ReopenLockedAsync(billId, hostParticipantId, token), cancellationToken);
+    }
+
+    private async Task ReopenLockedAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken)
+    {
+        var bill = await GetBillAsync(billId, cancellationToken);
+        EnsureHost(bill, hostParticipantId);
+
+        if (bill.Status != BillStatus.Finalized)
+        {
+            throw new InvalidOperationException("Only a finalized bill can be reopened.");
+        }
+
+        await billWriteRepository.UpdateStatusAndParticipantsReadyAsync(bill, BillStatus.Active, participantsReady: false, cancellationToken);
+    }
+
     private async Task<Bill> GetActiveBillAsync(Guid billId, CancellationToken cancellationToken)
     {
         var bill = await billReadRepository.GetWithParticipantsAndItemsAsync(billId, cancellationToken) ?? throw new KeyNotFoundException("Bill was not found.");
 
         EnsureActive(bill);
         return bill;
+    }
+
+    private async Task<Bill> GetBillAsync(Guid billId, CancellationToken cancellationToken)
+    {
+        return await billReadRepository.GetWithParticipantsAndItemsAsync(billId, cancellationToken) ?? throw new KeyNotFoundException("Bill was not found.");
+    }
+
+    private async Task<IReadOnlyList<ItemSelection>> GetSelectionsAsync(Bill bill, CancellationToken cancellationToken)
+    {
+        var itemIds = bill.Items.Select(item => item.Id).ToArray();
+        return await itemSelectionReadRepository.GetByBillItemIdsAsync(itemIds, cancellationToken);
+    }
+
+    private static void EnsureCompleteDistribution(Bill bill, IReadOnlyCollection<ItemSelection> selections)
+    {
+        var participantIds = bill.Participants.Select(participant => participant.Id).ToHashSet();
+        if (selections.Any(selection => !participantIds.Contains(selection.ParticipantId)))
+        {
+            throw new InvalidOperationException("A bill item selection references a participant outside this bill.");
+        }
+
+        foreach (var item in bill.Items)
+        {
+            var itemSelections = selections.Where(selection => selection.BillItemId == item.Id).ToArray();
+            if (itemSelections.Any(selection => selection.Quantity <= 0))
+            {
+                throw new InvalidOperationException("Item selection quantities must be greater than zero.");
+            }
+
+            switch (item.SplitType)
+            {
+                case SplitType.Quantity:
+                    var selectedQuantity = itemSelections.Sum(selection => (long)selection.Quantity);
+                    if (selectedQuantity != item.Quantity)
+                    {
+                        throw new InvalidOperationException("Every quantity item must be fully selected before calculation or finalization.");
+                    }
+                    break;
+                case SplitType.Shared:
+                    if (itemSelections.Length == 0)
+                    {
+                        throw new InvalidOperationException("Every shared item must be selected by at least one participant before calculation or finalization.");
+                    }
+
+                    break;
+                default:
+                    throw new InvalidOperationException("The bill contains an unsupported item split type.");
+            }
+        }
+    }
+
+    private static Dictionary<Guid, decimal> DistributeEqually(decimal amount, IReadOnlyCollection<Guid> participantIds)
+    {
+        var orderedParticipantIds = participantIds.Distinct().Order().ToArray();
+        if (orderedParticipantIds.Length == 0)
+        {
+            throw new InvalidOperationException("An amount cannot be distributed without participants.");
+        }
+
+        var totalCents = amount * 100m;
+        if (totalCents != decimal.Truncate(totalCents))
+        {
+            throw new InvalidOperationException("Monetary values must have no more than two decimal places.");
+        }
+
+        var baseCents = decimal.Truncate(totalCents / orderedParticipantIds.Length);
+        var remainderCents = decimal.ToInt32(totalCents % orderedParticipantIds.Length);
+        var shares = new Dictionary<Guid, decimal>(orderedParticipantIds.Length);
+
+        for (var index = 0; index < orderedParticipantIds.Length; index++)
+        {
+            var cents = baseCents + (index < remainderCents ? 1m : 0m);
+            shares.Add(orderedParticipantIds[index], cents / 100m);
+        }
+
+        return shares;
+    }
+
+    private static void AddShares(IDictionary<Guid, decimal> participantTotals, IReadOnlyDictionary<Guid, decimal> shares)
+    {
+        foreach (var (participantId, amount) in shares)
+        {
+            participantTotals[participantId] += amount;
+        }
     }
 
     private static void EnsureActive(Bill bill)
@@ -262,6 +476,16 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         {
             await participantWriteRepository.SetReadyAsync(participant, false, cancellationToken);
         }
+    }
+
+    private Task<T> ExecuteWithBillLockAsync<T>(Guid billId, Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
+    {
+        return billWriteRepository.ExecuteWithBillLockAsync(billId, operation, cancellationToken);
+    }
+
+    private Task ExecuteWithBillLockAsync(Guid billId, Func<CancellationToken, Task> operation, CancellationToken cancellationToken)
+    {
+        return billWriteRepository.ExecuteWithBillLockAsync(billId, operation, cancellationToken);
     }
 
     private static string NormalizeCode(string code)
