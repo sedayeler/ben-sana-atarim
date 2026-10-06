@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Security.Authentication;
+using System.Text;
 using BenSanaAtarim.Application.AI.Models;
 using BenSanaAtarim.Application.Repositories;
 using BenSanaAtarim.Application.Services;
@@ -18,21 +20,35 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
     private const int MaximumUsernameLength = 50;
     private const int MaximumItemNameLength = 150;
 
-    public async Task<Bill> CreateBillAsync(string hostUsername, CancellationToken cancellationToken = default)
+    public async Task<BillAccessSession> CreateBillAsync(string hostUsername, CancellationToken cancellationToken = default)
     {
         var normalizedHostUsername = NormalizeParticipantUsername(hostUsername, nameof(hostUsername));
         var code = await GenerateUniqueCodeAsync(cancellationToken);
         var bill = new Bill(code);
         await EnsureUsernameAvailableAsync(bill.Id, normalizedHostUsername, cancellationToken);
-        bill.Participants.Add(new Participant(normalizedHostUsername, isHost: true));
+        var (accessToken, accessTokenHash) = CreateAccessToken();
+        var host = new Participant(bill.Id, normalizedHostUsername, accessTokenHash, isHost: true);
+        bill.Participants.Add(host);
 
-        return await billWriteRepository.AddAsync(bill, cancellationToken);
+        var createdBill = await billWriteRepository.AddAsync(bill, cancellationToken);
+        return new BillAccessSession(createdBill, host, accessToken);
     }
 
     public async Task<BillDetails?> GetByCodeAsync(string code, CancellationToken cancellationToken = default)
     {
         var normalizedCode = NormalizeCode(code);
-        var bill = await billReadRepository.GetByCodeWithParticipantsAndItemsAsync(normalizedCode, cancellationToken);
+        var billId = await billReadRepository.GetIdByCodeAsync(normalizedCode, cancellationToken);
+        return billId is null ? null : await GetDetailsAsync(billId.Value, cancellationToken);
+    }
+
+    public Task<BillDetails?> GetDetailsAsync(Guid billId, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, token => CreateBillDetailsLockedAsync(billId, token), cancellationToken);
+    }
+
+    private async Task<BillDetails?> CreateBillDetailsLockedAsync(Guid billId, CancellationToken cancellationToken)
+    {
+        var bill = await billReadRepository.GetWithParticipantsAndItemsAsync(billId, cancellationToken);
         if (bill is null)
         {
             return null;
@@ -42,6 +58,26 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         var selections = await itemSelectionReadRepository.GetByBillItemIdsAsync(itemIds, cancellationToken);
 
         return new BillDetails(bill, selections);
+    }
+
+    public async Task<BillDetails?> GetByCodeForParticipantAsync(string code, string accessToken, CancellationToken cancellationToken = default)
+    {
+        var details = await GetByCodeAsync(code, cancellationToken);
+        if (details is null || FindParticipantByAccessToken(details.Bill, accessToken) is null)
+        {
+            return null;
+        }
+
+        return details;
+    }
+
+    public Task EnsureHostAccessAsync(Guid billId, string accessToken, CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithBillLockAsync(billId, async token =>
+        {
+            var bill = await GetActiveBillAsync(billId, token);
+            EnsureHost(bill, accessToken);
+        }, cancellationToken);
     }
 
     public Task<BillCalculationResult> CalculateAsync(Guid billId, CancellationToken cancellationToken = default)
@@ -99,7 +135,7 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return new BillCalculationResult(bill.Id, itemsTotal, bill.ServiceCharge, total, participantResults);
     }
 
-    public async Task<Participant> JoinAsync(string code, string username, CancellationToken cancellationToken = default)
+    public async Task<BillAccessSession> JoinAsync(string code, string username, CancellationToken cancellationToken = default)
     {
         var normalizedCode = NormalizeCode(code);
         var normalizedUsername = NormalizeParticipantUsername(username, nameof(username));
@@ -107,27 +143,29 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return await ExecuteWithBillLockAsync(billId, token => JoinLockedAsync(billId, normalizedUsername, token), cancellationToken);
     }
 
-    private async Task<Participant> JoinLockedAsync(Guid billId, string username, CancellationToken cancellationToken)
+    private async Task<BillAccessSession> JoinLockedAsync(Guid billId, string username, CancellationToken cancellationToken)
     {
         var bill = await GetBillAsync(billId, cancellationToken);
         EnsureActive(bill);
         await EnsureUsernameAvailableAsync(bill.Id, username, cancellationToken);
 
-        var participant = new Participant(bill.Id, username, isHost: false);
-        return await participantWriteRepository.AddAsync(participant, cancellationToken);
+        var (accessToken, accessTokenHash) = CreateAccessToken();
+        var participant = new Participant(bill.Id, username, accessTokenHash, isHost: false);
+        var joinedParticipant = await participantWriteRepository.AddAsync(participant, cancellationToken);
+        return new BillAccessSession(bill, joinedParticipant, accessToken);
     }
 
-    public Task<Bill> ConfirmReceiptAsync(Guid billId, Guid hostParticipantId, ReceiptParseResult receipt, CancellationToken cancellationToken = default)
+    public Task<Bill> ConfirmReceiptAsync(Guid billId, string accessToken, ReceiptParseResult receipt, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => ConfirmReceiptLockedAsync(billId, hostParticipantId, receipt, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => ConfirmReceiptLockedAsync(billId, accessToken, receipt, token), cancellationToken);
     }
 
-    private async Task<Bill> ConfirmReceiptLockedAsync(Guid billId, Guid hostParticipantId, ReceiptParseResult receipt, CancellationToken cancellationToken)
+    private async Task<Bill> ConfirmReceiptLockedAsync(Guid billId, string accessToken, ReceiptParseResult receipt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(receipt);
 
         var bill = await GetActiveBillAsync(billId, cancellationToken);
-        EnsureHost(bill, hostParticipantId);
+        EnsureHost(bill, accessToken);
 
         if (receipt.ServiceCharge < 0)
         {
@@ -158,18 +196,18 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return bill;
     }
 
-    public Task<ItemSelection> SelectItemAsync(Guid billId, Guid participantId, Guid billItemId, int quantity = 1, CancellationToken cancellationToken = default)
+    public Task<ItemSelection> SelectItemAsync(Guid billId, string accessToken, Guid billItemId, int quantity = 1, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => SelectItemLockedAsync(billId, participantId, billItemId, quantity, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => SelectItemLockedAsync(billId, accessToken, billItemId, quantity, token), cancellationToken);
     }
 
-    private async Task<ItemSelection> SelectItemLockedAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken)
+    private async Task<ItemSelection> SelectItemLockedAsync(Guid billId, string accessToken, Guid billItemId, int quantity, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
-        var participant = GetParticipant(bill, participantId);
+        var participant = GetParticipantByAccessToken(bill, accessToken);
         var item = GetItem(bill, billItemId);
 
-        var existingSelection = await itemSelectionReadRepository.GetByParticipantAndBillItemAsync(participantId, billItemId, cancellationToken);
+        var existingSelection = await itemSelectionReadRepository.GetByParticipantAndBillItemAsync(participant.Id, billItemId, cancellationToken);
         if (existingSelection is not null)
         {
             throw new InvalidOperationException("The participant has already selected this item.");
@@ -186,36 +224,36 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
 
         await ResetReadyAsync(participant, cancellationToken);
 
-        var selection = new ItemSelection(billItemId, participantId, selectionQuantity);
+        var selection = new ItemSelection(billItemId, participant.Id, selectionQuantity);
         return await itemSelectionWriteRepository.AddAsync(selection, cancellationToken);
     }
 
-    public Task RemoveItemSelectionAsync(Guid billId, Guid participantId, Guid billItemId, CancellationToken cancellationToken = default)
+    public Task RemoveItemSelectionAsync(Guid billId, string accessToken, Guid billItemId, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => RemoveItemSelectionLockedAsync(billId, participantId, billItemId, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => RemoveItemSelectionLockedAsync(billId, accessToken, billItemId, token), cancellationToken);
     }
 
-    private async Task RemoveItemSelectionLockedAsync(Guid billId, Guid participantId, Guid billItemId, CancellationToken cancellationToken)
+    private async Task RemoveItemSelectionLockedAsync(Guid billId, string accessToken, Guid billItemId, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
-        var participant = GetParticipant(bill, participantId);
+        var participant = GetParticipantByAccessToken(bill, accessToken);
         GetItem(bill, billItemId);
 
-        var selection = await itemSelectionReadRepository.GetByParticipantAndBillItemAsync(participantId, billItemId, cancellationToken) ?? throw new KeyNotFoundException("Item selection was not found.");
+        var selection = await itemSelectionReadRepository.GetByParticipantAndBillItemAsync(participant.Id, billItemId, cancellationToken) ?? throw new KeyNotFoundException("Item selection was not found.");
 
         await ResetReadyAsync(participant, cancellationToken);
         await itemSelectionWriteRepository.DeleteAsync(selection, cancellationToken);
     }
 
-    public Task<ItemSelection> ChangeItemSelectionQuantityAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken = default)
+    public Task<ItemSelection> ChangeItemSelectionQuantityAsync(Guid billId, string accessToken, Guid billItemId, int quantity, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => ChangeItemSelectionQuantityLockedAsync(billId, participantId, billItemId, quantity, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => ChangeItemSelectionQuantityLockedAsync(billId, accessToken, billItemId, quantity, token), cancellationToken);
     }
 
-    private async Task<ItemSelection> ChangeItemSelectionQuantityLockedAsync(Guid billId, Guid participantId, Guid billItemId, int quantity, CancellationToken cancellationToken)
+    private async Task<ItemSelection> ChangeItemSelectionQuantityLockedAsync(Guid billId, string accessToken, Guid billItemId, int quantity, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
-        var participant = GetParticipant(bill, participantId);
+        var participant = GetParticipantByAccessToken(bill, accessToken);
         var item = GetItem(bill, billItemId);
 
         if (item.SplitType != SplitType.Quantity)
@@ -225,7 +263,7 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
 
         EnsurePositiveQuantity(quantity);
 
-        var selection = await itemSelectionReadRepository.GetByParticipantAndBillItemAsync(participantId, billItemId, cancellationToken) ?? throw new KeyNotFoundException("Item selection was not found.");
+        var selection = await itemSelectionReadRepository.GetByParticipantAndBillItemAsync(participant.Id, billItemId, cancellationToken) ?? throw new KeyNotFoundException("Item selection was not found.");
         if (selection.Quantity == quantity)
         {
             return selection;
@@ -239,12 +277,12 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return selection;
     }
 
-    public Task ChangeItemSplitTypeAsync(Guid billId, Guid hostParticipantId, Guid billItemId, SplitType splitType, CancellationToken cancellationToken = default)
+    public Task ChangeItemSplitTypeAsync(Guid billId, string accessToken, Guid billItemId, SplitType splitType, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => ChangeItemSplitTypeLockedAsync(billId, hostParticipantId, billItemId, splitType, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => ChangeItemSplitTypeLockedAsync(billId, accessToken, billItemId, splitType, token), cancellationToken);
     }
 
-    private async Task ChangeItemSplitTypeLockedAsync(Guid billId, Guid hostParticipantId, Guid billItemId, SplitType splitType, CancellationToken cancellationToken)
+    private async Task ChangeItemSplitTypeLockedAsync(Guid billId, string accessToken, Guid billItemId, SplitType splitType, CancellationToken cancellationToken)
     {
         if (!Enum.IsDefined(splitType))
         {
@@ -252,7 +290,7 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         }
 
         var bill = await GetActiveBillAsync(billId, cancellationToken);
-        EnsureHost(bill, hostParticipantId);
+        EnsureHost(bill, accessToken);
         var item = GetItem(bill, billItemId);
 
         if (item.SplitType == splitType)
@@ -276,15 +314,15 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         await billItemWriteRepository.SetSplitTypeAsync(item, splitType, cancellationToken);
     }
 
-    public Task<Participant> SetParticipantReadyAsync(Guid billId, Guid participantId, bool isReady, CancellationToken cancellationToken = default)
+    public Task<Participant> SetParticipantReadyAsync(Guid billId, string accessToken, bool isReady, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => SetParticipantReadyLockedAsync(billId, participantId, isReady, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => SetParticipantReadyLockedAsync(billId, accessToken, isReady, token), cancellationToken);
     }
 
-    private async Task<Participant> SetParticipantReadyLockedAsync(Guid billId, Guid participantId, bool isReady, CancellationToken cancellationToken)
+    private async Task<Participant> SetParticipantReadyLockedAsync(Guid billId, string accessToken, bool isReady, CancellationToken cancellationToken)
     {
         var bill = await GetActiveBillAsync(billId, cancellationToken);
-        var participant = GetParticipant(bill, participantId);
+        var participant = GetParticipantByAccessToken(bill, accessToken);
 
         if (participant.IsReady != isReady)
         {
@@ -294,15 +332,15 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         return participant;
     }
 
-    public Task FinalizeAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken = default)
+    public Task FinalizeAsync(Guid billId, string accessToken, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => FinalizeLockedAsync(billId, hostParticipantId, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => FinalizeLockedAsync(billId, accessToken, token), cancellationToken);
     }
 
-    private async Task FinalizeLockedAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken)
+    private async Task FinalizeLockedAsync(Guid billId, string accessToken, CancellationToken cancellationToken)
     {
         var bill = await GetBillAsync(billId, cancellationToken);
-        EnsureHost(bill, hostParticipantId);
+        EnsureHost(bill, accessToken);
         EnsureActive(bill);
 
         if (bill.Participants.Any(participant => !participant.IsReady))
@@ -316,15 +354,15 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         await billWriteRepository.UpdateStatusAndParticipantsReadyAsync(bill, BillStatus.Finalized, participantsReady: true, cancellationToken);
     }
 
-    public Task ReopenAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken = default)
+    public Task ReopenAsync(Guid billId, string accessToken, CancellationToken cancellationToken = default)
     {
-        return ExecuteWithBillLockAsync(billId, token => ReopenLockedAsync(billId, hostParticipantId, token), cancellationToken);
+        return ExecuteWithBillLockAsync(billId, token => ReopenLockedAsync(billId, accessToken, token), cancellationToken);
     }
 
-    private async Task ReopenLockedAsync(Guid billId, Guid hostParticipantId, CancellationToken cancellationToken)
+    private async Task ReopenLockedAsync(Guid billId, string accessToken, CancellationToken cancellationToken)
     {
         var bill = await GetBillAsync(billId, cancellationToken);
-        EnsureHost(bill, hostParticipantId);
+        EnsureHost(bill, accessToken);
 
         if (bill.Status != BillStatus.Finalized)
         {
@@ -434,14 +472,35 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         }
     }
 
-    private static Participant GetParticipant(Bill bill, Guid participantId)
+    private static Participant GetParticipantByAccessToken(Bill bill, string accessToken)
     {
-        return bill.Participants.SingleOrDefault(participant => participant.Id == participantId) ?? throw new KeyNotFoundException("Participant was not found in this bill.");
+        return FindParticipantByAccessToken(bill, accessToken) ?? throw new AuthenticationException("A valid participant access token is required.");
     }
 
-    private static void EnsureHost(Bill bill, Guid participantId)
+    private static Participant? FindParticipantByAccessToken(Bill bill, string accessToken)
     {
-        var participant = GetParticipant(bill, participantId);
+        if (string.IsNullOrWhiteSpace(accessToken) || accessToken.Length != 43)
+        {
+            return null;
+        }
+
+        var presentedHash = Encoding.ASCII.GetBytes(HashAccessToken(accessToken));
+        Participant? matchedParticipant = null;
+        foreach (var participant in bill.Participants)
+        {
+            var storedHash = participant.AccessTokenHash;
+            if (storedHash is not null && CryptographicOperations.FixedTimeEquals(presentedHash, Encoding.ASCII.GetBytes(storedHash)))
+            {
+                matchedParticipant = participant;
+            }
+        }
+
+        return matchedParticipant;
+    }
+
+    private static void EnsureHost(Bill bill, string accessToken)
+    {
+        var participant = GetParticipantByAccessToken(bill, accessToken);
         if (!participant.IsHost)
         {
             throw new UnauthorizedAccessException("Only the bill host can perform this operation.");
@@ -561,5 +620,18 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         }
 
         throw new InvalidOperationException("A unique bill code could not be generated.");
+    }
+
+    private static (string AccessToken, string AccessTokenHash) CreateAccessToken()
+    {
+        var tokenBytes = RandomNumberGenerator.GetBytes(32);
+        var accessToken = Convert.ToBase64String(tokenBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+        return (accessToken, HashAccessToken(accessToken));
+    }
+
+    private static string HashAccessToken(string accessToken)
+    {
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accessToken)));
     }
 }

@@ -11,6 +11,8 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Kod veritabanında unique olmalıdır.
 - Bill'i oluşturan participant host olur ve başlangıçta ready değildir.
 - Host normal bir Participant'tır; farkı `IsHost = true` olmasıdır.
+- MVP'de Bill başına participant sayısı için ayrıca bir üst sınır uygulanmaz.
+- Bill oluşturma ve katılma sonucunda her Participant'a gizli bir erişim token'ı verilir. Sonraki değişiklik istekleri bu token ile Participant'ı belirler; yalnızca herkese açık Participant kimliği host yetkisi sağlamaz.
 - Host diğer participant'lar gibi item selection yapabilir.
 - Host username değeri trim edilir, boş olamaz ve en fazla 50 karakter olabilir. Girilen casing gösterim için korunur.
 
@@ -31,6 +33,7 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 
 ## Fiş okuma ve onaylama
 
+- API üzerinden yüklenen fiş görseli en fazla 10 MB olabilir ve JPEG, PNG veya WebP biçiminde olmalıdır.
 - AI parser yalnızca `Name`, `Quantity`, `UnitPrice` ve `ServiceCharge` çıkarır.
 - Parse sonucu otomatik olarak veritabanına yazılmaz.
 - Receipt yalnızca host tarafından ve `Active` Bill üzerinde onaylanabilir.
@@ -41,6 +44,8 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Varsayılan split type, quantity 1'den büyükse `Quantity`; aksi halde `Shared`dır.
 - Receipt onaylama Bill'i finalize etmez.
 - Receipt tekrar onaylandığında mevcut item selections silinir, ready participant'lar unready yapılır ve item listesi yenisiyle değiştirilir.
+- Mevcut fiş düzeltme ve yeniden onaylama akışı yeterlidir; bunun için ek API endpoint'i gerekmez.
+- Parse işlemi tek başına Bill durumunu değiştirmez ve SignalR güncellemesi yayınlamaz. Başarılı Bill değişikliklerinden sonra Bill grubuna `BillUpdated` ile güncel Bill ayrıntıları gönderilir.
 
 ## Item seçimi
 
@@ -50,6 +55,7 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Aynı participant aynı BillItem için yalnızca bir selection oluşturabilir.
 - `Quantity` item seçiminde seçilen adet sıfırdan büyük olmalıdır.
 - Bir `Quantity` item için toplam selection quantity hiçbir durumda `BillItem.Quantity` değerini aşamaz; bu iş kuralı eş zamanlı işlemlerde de korunmalıdır.
+- MVP'de Bill başına item sayısı için ayrıca bir üst sınır uygulanmaz.
 - Eş zamanlı seçim yazımları Bill satırı üzerinde PostgreSQL `FOR UPDATE` kilidiyle sıraya alınır.
 - `Shared` item seçiminde adet business anlamı taşımaz; kayıt `Quantity = 1` ile tutulur.
 - Shared selection quantity değeri değiştirilemez.
@@ -112,4 +118,4 @@ Bu bölüm hesaplama kurallarını tanımlar.
 
 ## Açık ürün kararları
 
-- Eş zamanlı Quantity kapasite çakışmasının kullanıcıya nasıl sunulacağı henüz kararlaştırılmadı.
+Backend kapsamında açık business kararı yoktur. Quantity kapasite çakışmasının kullanıcıya sunumu ve `ProblemDetails` hata yanıtlarının dil/formatı frontend'de belirlenir.

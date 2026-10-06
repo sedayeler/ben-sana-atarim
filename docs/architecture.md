@@ -34,7 +34,7 @@ Infrastructure paketleri EF Core 10, Npgsql EF Core sağlayıcısı, yapılandı
 
 - `BaseEntity`: yalnızca `Guid Id`.
 - `Bill`: code, status, service charge, UTC oluşturulma zamanı, participants ve items.
-- `Participant`: Bill kimliği, username, host ve ready durumu.
+- `Participant`: Bill kimliği, username, host ve ready durumu ile nullable erişim token hash'i.
 - `BillItem`: Bill kimliği, name, quantity, unit price ve split type.
 - `ItemSelection`: BillItem kimliği, Participant kimliği ve quantity.
 - `BillStatus`: `Active`, `Finalized`.
@@ -50,7 +50,7 @@ Entity setter'ları public değildir. Entity'lerde iş kuralı veya işlem metod
 - Bill, Participant, BillItem ve ItemSelection için entity için özel repository sözleşmeleri.
 - `IBillService` kullanım akışı sözleşmesi.
 - `IReceiptParser` AI entegrasyonu için arayüz.
-- Fiş okuma, Bill ayrıntı ve hesaplama sonuç modelleri.
+- Fiş okuma, Bill ayrıntı, erişim oturumu ve hesaplama sonuç modelleri.
 
 Application kalıcılık veya AI sağlayıcı uygulaması içermez.
 
@@ -63,7 +63,7 @@ Application kalıcılık veya AI sağlayıcı uygulaması içermez.
 - `BillService` iş kuralları uygulaması.
 - Gemini REST API kullanan `GeminiReceiptParser`.
 - Bağımlılık kayıtları.
-- EF Core migration dosyaları; mevcut ilk migration `InitialCreate`dır.
+- EF Core migration dosyaları; ilk migration `InitialCreate`, son migration participant erişim token hash'i ekler.
 
 Mevcut mimari service merkezlidir. İş kararları `BillService` içinde uygulanır. Repository'ler sorgular ve private setter'lı durumun EF Core üzerinden kaydedilmesi için kullanılır.
 
@@ -71,11 +71,15 @@ Bill üzerindeki mutasyonlar ve hesaplama, aynı Bill satırında PostgreSQL `FO
 
 ### API
 
-`BenSanaAtarim.Api` bağımlılıkların birleştirildiği giriş noktasıdır. `Program.cs`, Infrastructure servislerini configuration ile kaydeder ve uygulamayı çalıştırır. Henüz controller, minimal API endpoint veya başka bir HTTP arayüzü yoktur.
+`BenSanaAtarim.Api` bağımlılıkların birleştirildiği giriş noktasıdır. `Program.cs`, Infrastructure servislerini configuration ile kaydeder, Controller'ları ekler ve uygulamayı çalıştırır. HTTP arayüzü, `BillsController` üzerinden Bill oluşturma/okuma/katılma, fiş parse/onay, item selection, split type, ready, calculation, finalize ve reopen akışlarını sunar. Controller'lar service katmanını çağırır; iş kuralları `BillService` içinde kalır. Swagger yalnız Development ortamında `/swagger` UI ve `/swagger/v1/swagger.json` OpenAPI belgesini sunar. Hatalar HTTP status kodlarına eşlenen `ProblemDetails` yanıtlarıyla döner.
+
+Bill oluşturan ve katılan participant'a 32 byte kriptografik rastgelelikten türetilen erişim token'ı bir kez verilir. `BillService` yalnızca SHA-256 hash'ini `Participant.AccessTokenHash` alanına kaydeder ve sonraki değişiklik akışlarında token'dan participant'ı belirler. API response ve `BillUpdated` snapshot'ları entity'leri doğrudan serialize etmez; erişim token'ı veya hash içermez. Önceki migration'lardan kalan participant kayıtlarının hash alanı nullable olduğu için verileri korunur, fakat bu kayıtlar yeni token olmadan değişiklik isteği yapamaz.
+
+Fiş parse endpoint'i host bearer token'ını ve `Active` Bill durumunu doğrular. Yüklemeyi 10 MB ile sınırlar ve JPEG/PNG/WebP imza kontrolü yapar. Parse sonucu persistence'a yazılmaz. Başarılı Bill mutasyonlarından sonra `BillUpdated` olayı Bill'in SignalR grubuna gönderilir; yalnız parse işleminde yayın yapılmaz. SignalR bağlantısı `JoinBill(code, accessToken)` çağrısıyla token doğrulanmadan gruba eklenmez.
 
 ### Frontend
 
-Frontend React 19, TypeScript 5.9 ve Vite 7 kullanır. Paket adı `ben-sana-atarim`dır. `App` şu anda boş bir `<main />` render eder; ürün UI'ı henüz geliştirilmemiştir. Paket yöneticisi dosyaları pnpm kullanıldığını gösterir.
+Frontend React 19, TypeScript 5.9 ve Vite 7 kullanır. Paket adı `ben-sana-atarim`dır. `App` şu anda boş bir `<main />` render eder; ürün UI'ı henüz geliştirilmemiştir. Paket yöneticisi npm'dir; kilit dosyası `package-lock.json`dır.
 
 ## Kalıcılık modeli
 
@@ -85,6 +89,7 @@ Kesin EF Core kuralları:
 
 - Bill code zorunlu, en fazla 12 karakter ve benzersiz bir indexe sahiptir.
 - Participant username zorunlu ve en fazla 50 karakterdir; aynı Bill içindeki username değerleri case-insensitive unique olmalıdır. Kullanıcının girdiği casing gösterim için korunur.
+- `Participant.AccessTokenHash` en fazla 64 karakterli nullable bir alandır. Yeni kayıtlar SHA-256 hash saklar; eski satırlar migration sırasında değiştirilmez.
 - BillItem name zorunlu ve en fazla 150 karakterdir.
 - ServiceCharge ve UnitPrice `decimal(10,2)` precision kullanır.
 - Bir Participant ile BillItem çifti için yalnızca bir ItemSelection olabilir.
@@ -118,11 +123,11 @@ Frontend:
 
 ```powershell
 cd frontend
-pnpm install
-pnpm dev
-pnpm build
+npm install
+npm run dev
+npm run build
 ```
 
 ## Henüz bulunmayan teknik yapılar
 
-Repository'de test projesi, CQRS, MediatR, Unit of Work, controller, endpoint, SignalR veya frontend özellik yapısı bulunmaz.
+Repository'de test projesi, CQRS, MediatR, Unit of Work veya frontend özellik yapısı bulunmaz. HTTP API ASP.NET Core Controller'ları, gerçek zamanlı bildirimler SignalR ile uygulanmıştır.

@@ -36,6 +36,7 @@ public sealed class BenSanaAtarimDbContext(DbContextOptions<BenSanaAtarimDbConte
         {
             entity.HasKey(participant => participant.Id);
             entity.Property(participant => participant.Username).IsRequired().HasMaxLength(50);
+            entity.Property(participant => participant.AccessTokenHash).HasMaxLength(64);
             entity.Property<string>("UsernameNormalized").HasComputedColumnSql("lower(\"Username\")", stored: true).IsRequired();
             entity.HasIndex("BillId", "UsernameNormalized").IsUnique();
         });

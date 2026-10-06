@@ -14,10 +14,7 @@ public sealed class BillReadRepository(BenSanaAtarimDbContext context) : ReadRep
 
     public async Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken = default)
     {
-        return await Entities.AsNoTracking()
-            .Where(bill => bill.Code == code)
-            .Select(bill => (Guid?)bill.Id)
-            .SingleOrDefaultAsync(cancellationToken);
+        return await Entities.AsNoTracking().Where(bill => bill.Code == code).Select(bill => (Guid?)bill.Id).SingleOrDefaultAsync(cancellationToken);
     }
 
     public async Task<Bill?> GetWithParticipantsAndItemsAsync(Guid id, CancellationToken cancellationToken = default)

@@ -49,10 +49,7 @@ public sealed class BillWriteRepository : WriteRepository<Bill>, IBillWriteRepos
         }
 
         await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-        await _context.bills
-            .FromSqlInterpolated($"SELECT * FROM bills WHERE \"Id\" = {billId} FOR UPDATE")
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        await _context.bills.FromSqlInterpolated($"SELECT * FROM bills WHERE \"Id\" = {billId} FOR UPDATE").AsNoTracking().ToListAsync(cancellationToken);
 
         _context.ChangeTracker.Clear();
 

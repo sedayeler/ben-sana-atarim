@@ -21,9 +21,17 @@ Uygulama katmanındaki mevcut sözleşmeler ve Infrastructure uygulaması şu ku
 - Seçimler tamamlandığında participant paylarını ve Bill toplamını hesaplama.
 - Host'un Bill'i finalize etmesi ve yeniden açması.
 
-Bu yetenekler şu anda service katmanındadır. API controller veya endpoint bulunmaz. Frontend boş bir başlangıç ekranıdır.
+Bu yetenekler service katmanında uygulanır ve ASP.NET Core Controller tabanlı HTTP API üzerinden erişilebilir. Frontend boş bir başlangıç ekranıdır.
 
 Participant kimliği için Bill'e katılırken `Username` kullanılır. Username aynı Bill içinde case-insensitive unique olmalı, farklı Bill'lerde tekrar kullanılabilmeli ve kullanıcının girdiği casing gösterim için korunmalıdır. Ayrıntılı kurallar `business-rules.md` içindedir.
+
+API akışında Bill oluşturan veya Bill'e katılan her Participant için bir kez gösterilen gizli erişim token'ı verilir. İstemci sonraki değişiklik isteklerinde bearer token olarak bunu taşır. Veritabanında token'ın SHA-256 hash'i saklanır; token ve hash API/SignalR snapshot'larında gösterilmez. Participant ID gösterilebilir, ancak kimlik doğrulama veya host yetkisi sağlamaz. Bu token kullanıcı hesabı oluşturmaz. Migration öncesinden kalan participant kayıtlarında token bulunmadığı için bu kayıtlar okunabilir ancak token ile değişiklik isteği yapamaz.
+
+Başarılı Bill değişikliklerinden sonra Bill grubuna SignalR `BillUpdated` olayıyla güncel Bill ayrıntıları gönderilir. Salt fiş görselini parse etme işlemi Bill durumunu değiştirmediği için yayın yapmaz.
+
+Fiş görseli yüklemeleri en fazla 10 MB olabilir; JPEG, PNG ve WebP kabul edilir. Backend bu kapsamda API doğrulaması ve hata eşlemesi sağlar. Swagger/OpenAPI belgeleri yalnızca Development ortamında endpoint'leri denemek için sunulur.
+
+MVP'de Bill başına participant veya item sayısı için ayrıca bir üst sınır uygulanmaz. Mevcut fiş düzeltme ve yeniden onaylama API akışı yeterlidir; bunun için ek API endpoint'i planlanmaz. Quantity kapasite çakışması ve hata mesajlarının kullanıcıya sunumu frontend'de ele alınır. Backend `ProblemDetails` hata yanıtlarını döndürmeye devam eder.
 
 ## Para birimi ve parasal değerler
 
@@ -33,11 +41,9 @@ Participant kimliği için Bill'e katılırken `Username` kullanılır. Username
 
 ## MVP'de planlanan fakat henüz implement edilmemiş
 
-- API endpoints/controllers.
-- SignalR ile realtime güncellemeler.
 - Frontend ürün akışı.
 
-Bu özelliklerin iş kuralları kesinleşmiş olan bölümleri `business-rules.md` içinde yer alır. Henüz kodda bulunmamaları, kuralların belirsiz olduğu anlamına gelmez.
+Frontend akışının iş kuralları kesinleşmiş olan bölümleri `business-rules.md` içinde yer alır. Henüz kodda bulunmaması, kuralların belirsiz olduğu anlamına gelmez.
 
 ## MVP kapsamı dışında
 
@@ -50,10 +56,4 @@ Bu özelliklerin iş kuralları kesinleşmiş olan bölümleri `business-rules.m
 
 ## Kullanıcıya sorulması gereken ürün kararları
 
-Aşağıdaki konular henüz kesinleştirilmemiştir:
-
-- Authentication olmadan participant identity istemcide nasıl korunacak ve sonraki isteklerde nasıl taşınacak?
-- Participant, item ve fiş görseli limitleri ne olmalı?
-- Fiş düzeltme ve yeniden onaylama deneyimi API ve UI tarafında nasıl sunulmalı?
-- Eş zamanlı Quantity kapasite çakışması kullanıcıya nasıl sunulmalı?
-- UI hata mesajlarının dili ve formatı ne olmalı?
+Şu anda backend kapsamını etkileyen ve yanıt bekleyen ürün kararı bulunmuyor. Frontend akışındaki kapasite çakışması ve hata mesajlarının sunumu frontend geliştirilirken belirlenecek.
