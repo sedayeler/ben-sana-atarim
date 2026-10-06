@@ -14,12 +14,12 @@ public sealed class ItemSelectionReadRepository(BenSanaAtarimDbContext context) 
             return [];
         }
 
-        return await Entities.AsNoTracking().Where(selection => billItemIds.Contains(selection.BillItemId)).ToListAsync(cancellationToken);
+        return await Entities.AsNoTracking().Where(selection => billItemIds.Contains(selection.BillItemId)).OrderBy(selection => selection.Id).ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<ItemSelection>> GetByBillItemIdAsync(Guid billItemId, CancellationToken cancellationToken = default)
     {
-        return await Entities.AsNoTracking().Where(selection => selection.BillItemId == billItemId).ToListAsync(cancellationToken);
+        return await Entities.AsNoTracking().Where(selection => selection.BillItemId == billItemId).OrderBy(selection => selection.Id).ToListAsync(cancellationToken);
     }
 
     public async Task<ItemSelection?> GetByParticipantAndBillItemAsync(Guid participantId, Guid billItemId, CancellationToken cancellationToken = default)

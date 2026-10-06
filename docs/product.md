@@ -21,7 +21,7 @@ Uygulama katmanındaki mevcut sözleşmeler ve Infrastructure uygulaması şu ku
 - Seçimler tamamlandığında participant paylarını ve Bill toplamını hesaplama.
 - Host'un Bill'i finalize etmesi ve yeniden açması.
 
-Bu yetenekler service katmanında uygulanır ve ASP.NET Core Controller tabanlı HTTP API üzerinden erişilebilir. Frontend boş bir başlangıç ekranıdır.
+Bu yetenekler service katmanında uygulanır ve ASP.NET Core Controller tabanlı HTTP API üzerinden erişilebilir. Frontend bu akışların Türkçe ürün arayüzünü sunar (masa kurma, katılma, fiş okutma ve düzeltme, kalem seçimi, hesap kesme ve sonuç).
 
 Participant kimliği için Bill'e katılırken `Username` kullanılır. Username aynı Bill içinde case-insensitive unique olmalı, farklı Bill'lerde tekrar kullanılabilmeli ve kullanıcının girdiği casing gösterim için korunmalıdır. Ayrıntılı kurallar `business-rules.md` içindedir.
 
@@ -41,9 +41,7 @@ MVP'de Bill başına participant veya item sayısı için ayrıca bir üst sın�
 
 ## MVP'de planlanan fakat henüz implement edilmemiş
 
-- Frontend ürün akışı.
-
-Frontend akışının iş kuralları kesinleşmiş olan bölümleri `business-rules.md` içinde yer alır. Henüz kodda bulunmaması, kuralların belirsiz olduğu anlamına gelmez.
+Şu anda MVP kapsamında implement edilmemiş madde yoktur.
 
 ## MVP kapsamı dışında
 

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Authentication;
+using System.Globalization;
 using System.Text;
 using BenSanaAtarim.Application.AI.Models;
 using BenSanaAtarim.Application.Repositories;
@@ -19,6 +20,7 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
     private const int MaximumCodeGenerationAttempts = 10;
     private const int MaximumUsernameLength = 50;
     private const int MaximumItemNameLength = 150;
+    private const decimal MaximumMoneyValue = 99_999_999.99m;
 
     public async Task<BillAccessSession> CreateBillAsync(string hostUsername, CancellationToken cancellationToken = default)
     {
@@ -170,6 +172,13 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
         if (receipt.ServiceCharge < 0)
         {
             throw new ArgumentException("Service charge cannot be negative.", nameof(receipt));
+        }
+
+        EnsureMoneyValue(receipt.ServiceCharge, "Service charge", nameof(receipt));
+
+        if (receipt.Items is null || receipt.Items.Count == 0)
+        {
+            throw new ArgumentException("Receipt must contain at least one item.", nameof(receipt));
         }
 
         var items = receipt.Items.Select(CreateBillItem).ToList();
@@ -570,7 +579,45 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
             throw new ArgumentException($"Participant username cannot exceed {MaximumUsernameLength} characters.", parameterName);
         }
 
+        EnsureStorableText(normalizedUsername, "Participant username", parameterName);
+        if (normalizedUsername.All(IsInvisibleCharacter))
+        {
+            throw new ArgumentException("Participant username must contain visible characters.", parameterName);
+        }
+
         return normalizedUsername;
+    }
+
+    private static void EnsureStorableText(string value, string label, string parameterName)
+    {
+        if (value.Contains('\0') || HasUnpairedSurrogate(value))
+        {
+            throw new ArgumentException($"{label} contains characters that cannot be stored.", parameterName);
+        }
+    }
+
+    private static bool HasUnpairedSurrogate(string value)
+    {
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (char.IsHighSurrogate(value[index]) && index + 1 < value.Length && char.IsLowSurrogate(value[index + 1]))
+            {
+                index++;
+            }
+            else if (char.IsSurrogate(value[index]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsInvisibleCharacter(char character)
+    {
+        return char.IsWhiteSpace(character) || char.IsControl(character)
+            || CharUnicodeInfo.GetUnicodeCategory(character) is UnicodeCategory.Format or UnicodeCategory.SpaceSeparator
+                or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
     }
 
     private async Task EnsureUsernameAvailableAsync(Guid billId, string username, CancellationToken cancellationToken)
@@ -594,6 +641,8 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
             throw new ArgumentException($"Bill item name cannot exceed {MaximumItemNameLength} characters.", nameof(item));
         }
 
+        EnsureStorableText(normalizedName, "Bill item name", nameof(item));
+
         if (item.Quantity <= 0)
         {
             throw new ArgumentException("Bill item quantity must be greater than zero.", nameof(item));
@@ -604,8 +653,23 @@ public sealed class BillService(IBillReadRepository billReadRepository, IBillWri
             throw new ArgumentException("Bill item unit price cannot be negative.", nameof(item));
         }
 
+        EnsureMoneyValue(item.UnitPrice, "Bill item unit price", nameof(item));
+
         var splitType = item.Quantity > 1 ? SplitType.Quantity : SplitType.Shared;
         return new BillItem(normalizedName, item.Quantity, item.UnitPrice, splitType);
+    }
+
+    private static void EnsureMoneyValue(decimal value, string label, string parameterName)
+    {
+        if (value > MaximumMoneyValue)
+        {
+            throw new ArgumentException($"{label} cannot exceed {MaximumMoneyValue:0.00}.", parameterName);
+        }
+
+        if (decimal.Round(value, 2) != value)
+        {
+            throw new ArgumentException($"{label} cannot have more than two decimal places.", parameterName);
+        }
     }
 
     private async Task<string> GenerateUniqueCodeAsync(CancellationToken cancellationToken)

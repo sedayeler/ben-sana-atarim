@@ -22,7 +22,8 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Code ile okuma Bill, participants, items ve selections verisini döndürür.
 - Yalnızca `Active` Bill'e participant katılabilir.
 - Participant username değeri trim edilir, boş olamaz ve en fazla 50 karakter olabilir. Girilen casing gösterim için korunur.
-- Username aynı Bill içinde case-insensitive unique olmalıdır (`ece`, `Ece`, `ECE` aynı kabul edilir); farklı Bill'lerde tekrar kullanılabilir.
+- Username aynı Bill içinde case-insensitive unique olmalıdır (`ece`, `Ece`, `ECE` aynı kabul edilir); farklı Bill'lerde tekrar kullanılabilir. Karşılaştırma PostgreSQL `lower()` davranışına bağlıdır; ASCII dışı harflerde (ör. `Çağrı` ile `ÇAĞRI`) garanti verilmez.
+- Username ve item name NUL karakteri veya eşleşmemiş surrogate içeremez; username yalnızca boşluk, kontrol veya görünmez biçim karakterlerinden (ör. zero-width space) oluşamaz. İhlalde 400 döner.
 - Katılan participant host değildir ve başlangıçta ready değildir.
 
 ## Para birimi ve parasal değerler
@@ -41,10 +42,13 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Item adı trim edilir, boş olamaz ve en fazla 150 karakter olabilir.
 - Item quantity sıfırdan büyük olmalıdır.
 - Unit price negatif olamaz.
+- Receipt en az bir item içermelidir; boş liste 400 döner.
+- Unit price ve service charge en fazla 99.999.999,99 olabilir ve en fazla iki ondalık basamak içerebilir; aksi halde 400 döner, değer sessizce yuvarlanmaz.
 - Varsayılan split type, quantity 1'den büyükse `Quantity`; aksi halde `Shared`dır.
 - Receipt onaylama Bill'i finalize etmez.
 - Receipt tekrar onaylandığında mevcut item selections silinir, ready participant'lar unready yapılır ve item listesi yenisiyle değiştirilir.
 - Mevcut fiş düzeltme ve yeniden onaylama akışı yeterlidir; bunun için ek API endpoint'i gerekmez.
+- Gemini/upstream isteği veya yanıtı başarısız ya da geçersiz olursa parse endpoint'i 502 (`ProblemDetails`) döner; bu durum `ReceiptParsingException` ile ifade edilir.
 - Parse işlemi tek başına Bill durumunu değiştirmez ve SignalR güncellemesi yayınlamaz. Başarılı Bill değişikliklerinden sonra Bill grubuna `BillUpdated` ile güncel Bill ayrıntıları gönderilir.
 
 ## Item seçimi

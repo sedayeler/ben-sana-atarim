@@ -79,7 +79,15 @@ Fiş parse endpoint'i host bearer token'ını ve `Active` Bill durumunu doğrula
 
 ### Frontend
 
-Frontend React 19, TypeScript 5.9 ve Vite 7 kullanır. Paket adı `ben-sana-atarim`dır. `App` şu anda boş bir `<main />` render eder; ürün UI'ı henüz geliştirilmemiştir. Paket yöneticisi npm'dir; kilit dosyası `package-lock.json`dır.
+Frontend React 19, TypeScript 5.9 ve Vite 7 kullanır; yönlendirme `react-router-dom`, gerçek zamanlı bağlantı `@microsoft/signalr`, davet QR kodu `qrcode` ile yapılır. Paket adı `ben-sana-atarim`dır. Paket yöneticisi npm'dir; kilit dosyası `package-lock.json`dır.
+
+Rotalar: `/` (karşılama), `/masa-kur` (host adıyla masa kurma), `/katil/:code?` (kod ve adla katılma) ve `/masa/:code` (masa). Masa ekranı duruma göre lobi/misafir bekleme, fiş okutma (`Scan`), fiş düzeltme (`Review`), kalem seçimi (`Selection`) ve hesap sonucu (`Result`) görünümlerini gösterir.
+
+`useBill` masanın tek kaynağıdır: Bill önce `GET /api/bills/{code}` ile okunur, cihazda token varsa SignalR grubuna `JoinBill` ile girilir ve her `BillUpdated` olayı ile mutasyon yanıtı güncel snapshot'ı getirir. Katılımcı erişim token'ı ve kimlik bilgisi `localStorage`da masa koduna göre (`bsa:session:<KOD>`) saklanır; kayıt kaybolursa masadaki yer geri alınamaz. Hata türleri HTTP durum kodundan türetilir; backend `detail` metinleri iş mantığı için kullanılmaz.
+
+Para girişleri `parseMoney` ile okunur: virgül ondalık ayracıdır ve noktalar binliktir (`1.234,50`); virgülsüz yazımda `95.50` ondalık, `1.250` ve `1.234.567` binlik sayılır. Geçersiz ya da ikiden fazla ondalıklı giriş ve 99.999.999,99 üstü tutar gönderilmeden reddedilir.
+
+Geliştirmede Vite, `/api` ve `/hubs` (WebSocket dahil) isteklerini `http://localhost:5037` adresindeki backend'e yönlendirir; backend'de CORS yapılandırması yoktur.
 
 ## Kalıcılık modeli
 
@@ -88,7 +96,7 @@ Frontend React 19, TypeScript 5.9 ve Vite 7 kullanır. Paket adı `ben-sana-atar
 Kesin EF Core kuralları:
 
 - Bill code zorunlu, en fazla 12 karakter ve benzersiz bir indexe sahiptir.
-- Participant username zorunlu ve en fazla 50 karakterdir; aynı Bill içindeki username değerleri case-insensitive unique olmalıdır. Kullanıcının girdiği casing gösterim için korunur.
+- Participant username zorunlu ve en fazla 50 karakterdir; username yalnızca boşluk veya görünmez karakterlerden oluşamaz ve PostgreSQL text alanında saklanamayan karakterler (NUL gibi) içeremez. `Participant.UsernameNormalized`, `lower("Username")` ile hesaplanan stored computed kolondur ve `(BillId, UsernameNormalized)` unique indexi aynı Bill içinde case-insensitive benzersizliği sağlar; ASCII dışı harflerde karşılaştırma PostgreSQL `lower()` davranışına bağlıdır. Kullanıcının girdiği casing gösterim için `Username` alanında korunur.
 - `Participant.AccessTokenHash` en fazla 64 karakterli nullable bir alandır. Yeni kayıtlar SHA-256 hash saklar; eski satırlar migration sırasında değiştirilmez.
 - BillItem name zorunlu ve en fazla 150 karakterdir.
 - ServiceCharge ve UnitPrice `decimal(10,2)` precision kullanır.
@@ -130,4 +138,4 @@ npm run build
 
 ## Henüz bulunmayan teknik yapılar
 
-Repository'de test projesi, CQRS, MediatR, Unit of Work veya frontend özellik yapısı bulunmaz. HTTP API ASP.NET Core Controller'ları, gerçek zamanlı bildirimler SignalR ile uygulanmıştır.
+Repository'de test projesi, CQRS, MediatR veya Unit of Work bulunmaz. HTTP API ASP.NET Core Controller'ları, gerçek zamanlı bildirimler SignalR ile uygulanmıştır.

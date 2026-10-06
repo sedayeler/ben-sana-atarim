@@ -108,21 +108,43 @@ public sealed class GeminiReceiptParser(HttpClient httpClient, IConfiguration co
         };
         request.Headers.Add("x-goog-api-key", apiKey);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage response;
+        try
         {
-            throw new InvalidOperationException($"Gemini receipt parsing failed with status code {(int)response.StatusCode}.");
+            response = await httpClient.SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new ReceiptParsingException("Gemini receipt parsing request failed.", exception);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ReceiptParsingException("Gemini receipt parsing request timed out.", exception);
         }
 
-        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var responseDocument = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
+        using var _ = response;
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new ReceiptParsingException($"Gemini receipt parsing failed with status code {(int)response.StatusCode}.");
+        }
 
-        var responseText = GetResponseText(responseDocument.RootElement);
-        var result = JsonSerializer.Deserialize<ReceiptParseResult>(responseText, JsonOptions);
+        ReceiptParseResult? result;
+        try
+        {
+            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var responseDocument = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
+
+            var responseText = GetResponseText(responseDocument.RootElement);
+            result = JsonSerializer.Deserialize<ReceiptParseResult>(responseText, JsonOptions);
+        }
+        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or HttpRequestException)
+        {
+            throw new ReceiptParsingException("Gemini returned an invalid receipt result.", exception);
+        }
 
         if (result is null || result.Items is null)
         {
-            throw new InvalidOperationException("Gemini returned an invalid receipt result.");
+            throw new ReceiptParsingException("Gemini returned an invalid receipt result.");
         }
 
         return result;
@@ -132,7 +154,7 @@ public sealed class GeminiReceiptParser(HttpClient httpClient, IConfiguration co
     {
         if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
         {
-            throw new InvalidOperationException("Gemini did not return a receipt result.");
+            throw new ReceiptParsingException("Gemini did not return a receipt result.");
         }
 
         var parts = candidates[0].GetProperty("content").GetProperty("parts");
@@ -140,10 +162,10 @@ public sealed class GeminiReceiptParser(HttpClient httpClient, IConfiguration co
         {
             if (part.TryGetProperty("text", out var text))
             {
-                return text.GetString() ?? throw new InvalidOperationException("Gemini returned an empty receipt result.");
+                return text.GetString() ?? throw new ReceiptParsingException("Gemini returned an empty receipt result.");
             }
         }
 
-        throw new InvalidOperationException("Gemini returned an empty receipt result.");
+        throw new ReceiptParsingException("Gemini returned an empty receipt result.");
     }
 }

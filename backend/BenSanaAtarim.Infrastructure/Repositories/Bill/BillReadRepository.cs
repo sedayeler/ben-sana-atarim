@@ -29,6 +29,6 @@ public sealed class BillReadRepository(BenSanaAtarimDbContext context) : ReadRep
 
     private IQueryable<Bill> IncludeParticipantsAndItems()
     {
-        return Entities.Include(bill => bill.Participants).Include(bill => bill.Items);
+        return Entities.Include(bill => bill.Participants.OrderBy(participant => participant.Id)).Include(bill => bill.Items.OrderBy(item => item.Id));
     }
 }
