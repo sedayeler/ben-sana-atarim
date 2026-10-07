@@ -2,6 +2,7 @@ using System.Security.Authentication;
 using BenSanaAtarim.Application.AI;
 using BenSanaAtarim.Application.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 
 namespace BenSanaAtarim.Api;
@@ -26,6 +27,7 @@ public sealed class BillsController : ControllerBase
     }
 
     [HttpPost]
+    [EnableRateLimiting("bill-write")]
     public async Task<IActionResult> CreateBill([FromBody] CreateBillRequest request, CancellationToken cancellationToken)
     {
         var session = await _billService.CreateBillAsync(request.Username, cancellationToken);
@@ -41,6 +43,7 @@ public sealed class BillsController : ControllerBase
     }
 
     [HttpPost("{code}/participants")]
+    [EnableRateLimiting("bill-write")]
     public async Task<IActionResult> JoinBill(string code, [FromBody] JoinBillRequest request, CancellationToken cancellationToken)
     {
         var session = await _billService.JoinAsync(code, request.Username, cancellationToken);
@@ -52,6 +55,7 @@ public sealed class BillsController : ControllerBase
     [Consumes("multipart/form-data")]
     [RequestFormLimits(MultipartBodyLengthLimit = MaximumReceiptImageBytes + 64 * 1024)]
     [IgnoreAntiforgeryToken]
+    [EnableRateLimiting("receipt-parse")]
     public async Task<IActionResult> ParseReceipt(Guid billId, IFormFile image, CancellationToken cancellationToken)
     {
         await _billService.EnsureHostAccessAsync(billId, GetBearerToken(), cancellationToken);

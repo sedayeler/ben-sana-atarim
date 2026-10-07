@@ -55,6 +55,8 @@ export default function Table() {
         const kind = error instanceof ApiError ? error.kind : 'server'
         if (kind === 'auth') {
           setAccessLost(true)
+        } else if (kind === 'ratelimit') {
+          toast.show('Çok sık denedin. Birkaç dakika bekleyip tekrar dene.', 'warn')
         } else if (kind === 'network') {
           toast.show('İnternet masadan kalktı. Bağlantı gelince tekrar dene.', 'error')
         } else if (kind === 'forbidden') {

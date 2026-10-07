@@ -84,6 +84,7 @@ export type ApiErrorKind =
   | 'invalid'
   | 'toolarge'
   | 'upstream'
+  | 'ratelimit'
   | 'server'
 
 export class ApiError extends Error {
@@ -103,6 +104,7 @@ function kindFromStatus(status: number): ApiErrorKind {
   if (status === 404) return 'notfound'
   if (status === 409) return 'conflict'
   if (status === 413) return 'toolarge'
+  if (status === 429) return 'ratelimit'
   if (status === 502) return 'upstream'
   if (status >= 400 && status < 500) return 'invalid'
   return 'server'

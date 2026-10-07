@@ -5,7 +5,7 @@ import type { TableCtx } from './types'
 
 const MAX_BYTES = 10 * 1024 * 1024
 
-type Reason = 'toolarge' | 'format' | 'unreadable' | 'upstream' | 'server' | 'network' | 'auth'
+type Reason = 'toolarge' | 'format' | 'unreadable' | 'upstream' | 'ratelimit' | 'server' | 'network' | 'auth'
 type State = { kind: 'pick' } | { kind: 'reading' } | { kind: 'error'; reason: Reason }
 
 export default function Scan({ ctx, onDraft, onCancel }: { ctx: TableCtx; onDraft: (draft: ReceiptDraft) => void; onCancel: () => void }) {
@@ -25,7 +25,7 @@ export default function Scan({ ctx, onDraft, onCancel }: { ctx: TableCtx; onDraf
     } catch (error) {
       const kind = error instanceof ApiError ? error.kind : 'server'
       const reason: Reason =
-        kind === 'toolarge' ? 'toolarge' : kind === 'upstream' ? 'upstream' : kind === 'invalid' ? 'format' : kind === 'network' ? 'network' : kind === 'auth' || kind === 'forbidden' ? 'auth' : 'server'
+        kind === 'toolarge' ? 'toolarge' : kind === 'ratelimit' ? 'ratelimit' : kind === 'upstream' ? 'upstream' : kind === 'invalid' ? 'format' : kind === 'network' ? 'network' : kind === 'auth' || kind === 'forbidden' ? 'auth' : 'server'
       setState({ kind: 'error', reason })
     }
   }
@@ -114,6 +114,17 @@ export default function Scan({ ctx, onDraft, onCancel }: { ctx: TableCtx; onDraf
           >
             {retake}
             {again}
+            {back}
+          </ErrorScreen>
+        </>
+      )
+    }
+    if (reason === 'ratelimit') {
+      return (
+        <>
+          {inputs}
+          <ErrorScreen icon="receipt" tone="var(--sun)" title={<>Çok sık<br />denedin.</>} text="Kısa sürede çok fazla fiş okuttun. Birkaç dakika bekleyip aynı fotoğrafla tekrar dene.">
+            {again ?? retake}
             {back}
           </ErrorScreen>
         </>

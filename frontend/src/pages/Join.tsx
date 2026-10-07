@@ -69,6 +69,8 @@ export default function Join() {
         }
       } else if (error instanceof ApiError && error.kind === 'notfound') {
         setCodeState('notfound')
+      } else if (error instanceof ApiError && error.kind === 'ratelimit') {
+        setNameError('Çok sık denedin. Birkaç dakika bekleyip tekrar dene.')
       } else if (error instanceof ApiError && error.kind === 'network') {
         setNameError('İnternet masadan kalktı. Bağlantını kontrol edip tekrar dene.')
       } else if (error instanceof ApiError && error.kind === 'invalid') {

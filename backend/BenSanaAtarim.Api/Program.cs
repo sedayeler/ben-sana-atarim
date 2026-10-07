@@ -2,12 +2,42 @@ using BenSanaAtarim.Infrastructure;
 using BenSanaAtarim.Api;
 using BenSanaAtarim.Application.AI;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi;
 using System.Security.Authentication;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Render gibi platformlar dinlenecek portu PORT ortam değişkeniyle verir.
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
+// Reverse proxy arkasında gerçek istemci IP'sini (hız sınırı için) X-Forwarded-For'dan okur.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// IP başına hız sınırları: fiş okuma Gemini kotasını, masa kurma/katılma veritabanını korur.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("receipt-parse", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
+    options.AddPolicy("bill-write", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
+});
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
@@ -48,6 +78,8 @@ builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLi
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
 app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
@@ -83,8 +115,18 @@ app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
     });
 }));
 
+// React uygulaması (wwwroot) varsa API ile aynı adresten sunulur.
+// Statik dosyalar routing'den önce çalışmalı; aksi halde fallback endpoint'i dosyaları gölgeler.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.UseRouting();
+app.UseRateLimiter();
+
 app.MapControllers();
 app.MapHub<BillHub>("/hubs/bills");
+
+// /masa/KOD gibi istemci rotaları index.html'e düşer; bilinmeyen /api ve /hubs yolları 404 kalır.
+app.MapFallbackToFile("{*path:regex(^(?!api/|hubs/).*$)}", "index.html");
 
 if (app.Environment.IsDevelopment())
 {

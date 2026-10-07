@@ -24,7 +24,9 @@ export default function Create() {
       navigate(`/masa/${session.bill.code}`, { replace: true })
     } catch (e) {
       setError(
-        e instanceof ApiError && e.kind === 'network'
+        e instanceof ApiError && e.kind === 'ratelimit'
+          ? 'Çok sık denedin. Birkaç dakika bekleyip tekrar dene.'
+          : e instanceof ApiError && e.kind === 'network'
           ? 'İnternet masadan kalktı. Bağlantını kontrol edip tekrar dene.'
           : 'Masayı şu an kuramadık. Birkaç saniye sonra tekrar dene.',
       )
