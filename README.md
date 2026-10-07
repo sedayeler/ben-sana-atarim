@@ -6,7 +6,7 @@ Arkadaşlarla restoran hesabını bölüşmenin en kolay yolu.
 
 **Fişi çek → QR'ı ortaya koy → herkes kendi yediğini seçsin → kimin ne kadar ödeyeceği kuruşu kuruşuna belli olsun.**
 
-**Canlı:** [https://bensanaatarim.onrender.com/](CANLI_SITE_LINKI)  
+**Canlı:** [ben sana atarım](https://bensanaatarim.onrender.com/)
 
 ## Nasıl çalışır?
 
@@ -62,6 +62,8 @@ gereklidir.
 
 ## Local kurulum
 
+Aşağıdaki komutları repository kök dizininde çalıştır.
+
 ### 1. Repository'yi klonla
 
 ```bash
@@ -76,15 +78,15 @@ Gizli bilgiler kaynak kod içerisinde tutulmamalıdır.
 Development ortamında .NET User Secrets kullanılabilir:
 
 ```bash
-cd backend/BenSanaAtarim.Api
-
 dotnet user-secrets set \
   "ConnectionStrings:PostgreSQL" \
-  "Host=localhost;Port=5432;Database=bensanaatarim;Username=<kullanici>;Password=<parola>"
+  "Host=localhost;Port=5432;Database=bensanaatarim;Username=<kullanici>;Password=<parola>" \
+  --project backend/BenSanaAtarim.Api/BenSanaAtarim.Api.csproj
 
 dotnet user-secrets set \
   "Gemini:ApiKey" \
-  "<gemini-api-anahtari>"
+  "<gemini-api-anahtari>" \
+  --project backend/BenSanaAtarim.Api/BenSanaAtarim.Api.csproj
 ```
 
 Kullanılacak Gemini modeli `appsettings.json` içerisindeki:
@@ -98,20 +100,16 @@ ayarı üzerinden yapılandırılabilir.
 ### 3. Veritabanını oluştur
 
 ```bash
-cd backend
-
 dotnet ef database update \
-  --project BenSanaAtarim.Infrastructure \
-  --startup-project BenSanaAtarim.Api
+  --project backend/BenSanaAtarim.Infrastructure \
+  --startup-project backend/BenSanaAtarim.Api
 ```
 
 ### 4. Backend'i çalıştır
 
 ```bash
-cd backend
-
 dotnet run \
-  --project BenSanaAtarim.Api \
+  --project backend/BenSanaAtarim.Api \
   --launch-profile http
 ```
 
@@ -134,10 +132,8 @@ http://localhost:5037/swagger
 Yeni bir terminal aç:
 
 ```bash
-cd frontend
-
-npm install
-npm run dev
+npm --prefix frontend ci
+npm --prefix frontend run dev
 ```
 
 Development ortamında Vite, `/api` ve `/hubs` isteklerini backend'e proxy eder.
