@@ -6,7 +6,7 @@ Kullanıcı arayüzündeki marka adı `ben sana atarım` olarak, tamamen küçü
 
 ## Mevcut ürün kapsamı
 
-Mevcut kod, bir Bill üzerindeki fiş kalemlerinin katılımcılar tarafından seçildiği bir hesap paylaşım akışının temelini içerir.
+Uygulama, bir Bill üzerindeki fiş kalemlerinin masadaki katılımcılar tarafından paylaşıldığı uçtan uca bir hesap bölüşme akışı sunar.
 
 Uygulama katmanındaki mevcut sözleşmeler ve Infrastructure uygulaması şu kullanım alanlarını destekler:
 
@@ -21,7 +21,7 @@ Uygulama katmanındaki mevcut sözleşmeler ve Infrastructure uygulaması şu ku
 - Seçimler tamamlandığında participant paylarını ve Bill toplamını hesaplama.
 - Host'un Bill'i finalize etmesi ve yeniden açması.
 
-Bu yetenekler service katmanında uygulanır ve ASP.NET Core Controller tabanlı HTTP API üzerinden erişilebilir. Frontend bu akışların Türkçe ürün arayüzünü sunar (masa kurma, katılma, fiş okutma ve düzeltme, kalem seçimi, hesap kesme ve sonuç).
+Bu yetenekler service katmanında uygulanır ve ASP.NET Core Controller tabanlı HTTP API üzerinden erişilebilir. Türkçe frontend; masa kurma ve kod/QR/davet linkiyle katılma, fişi kameradan veya dosyadan okutma, taslağı düzeltip onaylama, kalem seçimi, hesap kesme ve kişi bazlı sonuç ekranlarını sunar. Host hesabı yeniden açabilir; mevcut seçimler korunur ve herkesin hazır durumu sıfırlanır.
 
 Participant kimliği için Bill'e katılırken `Username` kullanılır. Username aynı Bill içinde case-insensitive unique olmalı, farklı Bill'lerde tekrar kullanılabilmeli ve kullanıcının girdiği casing gösterim için korunmalıdır. Ayrıntılı kurallar `business-rules.md` içindedir.
 
@@ -31,7 +31,9 @@ Başarılı Bill değişikliklerinden sonra Bill grubuna SignalR `BillUpdated` o
 
 Fiş görseli yüklemeleri en fazla 10 MB olabilir; JPEG, PNG ve WebP kabul edilir. Backend bu kapsamda API doğrulaması ve hata eşlemesi sağlar. Swagger/OpenAPI belgeleri yalnızca Development ortamında endpoint'leri denemek için sunulur.
 
-MVP'de Bill başına participant veya item sayısı için ayrıca bir üst sınır uygulanmaz. Mevcut fiş düzeltme ve yeniden onaylama API akışı yeterlidir; bunun için ek API endpoint'i planlanmaz. Quantity kapasite çakışması ve hata mesajlarının kullanıcıya sunumu frontend'de ele alınır. Backend `ProblemDetails` hata yanıtlarını döndürmeye devam eder.
+MVP'de Bill başına participant veya item sayısı için ayrıca bir üst sınır uygulanmaz. Fiş düzeltme ve yeniden onaylama mevcut API akışıyla yapılır. `Quantity` kapasite çakışmasında frontend güncel Bill durumunu yeniden okur ve adet kalmadıysa kullanıcıya ilgili kalemin durumunu gösterir. Frontend, HTTP durumuna göre Türkçe hata ve bağlantı mesajları sunar; backend `ProblemDetails` yanıtlarını döndürür. Bütün kalemler dağıtılmadan kişi tutarı gösterilmez.
+
+Uygulama canlıya alınmıştır. Kök `Dockerfile`, frontend ve backend'i birlikte dağıtmak için kullanılır; production imajında ASP.NET Core API derlenmiş React dosyalarını aynı origin üzerinden sunar. Yayın adresi ve barındırma ayarları repository'de kayıtlı değildir.
 
 ## Para birimi ve parasal değerler
 
@@ -51,7 +53,3 @@ MVP'de Bill başına participant veya item sayısı için ayrıca bir üst sın�
 - Participant'ın Bill'den ayrılması.
 - Host rolünün devri.
 - Bill kodunun geçerlilik süresi.
-
-## Kullanıcıya sorulması gereken ürün kararları
-
-Şu anda backend kapsamını etkileyen ve yanıt bekleyen ürün kararı bulunmuyor. Frontend akışındaki kapasite çakışması ve hata mesajlarının sunumu frontend geliştirilirken belirlenecek.

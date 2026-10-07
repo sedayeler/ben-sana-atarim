@@ -67,7 +67,7 @@ Application kalıcılık veya AI sağlayıcı uygulaması içermez.
 
 Mevcut mimari service merkezlidir. İş kararları `BillService` içinde uygulanır. Repository'ler sorgular ve private setter'lı durumun EF Core üzerinden kaydedilmesi için kullanılır.
 
-Bill üzerindeki mutasyonlar ve hesaplama, aynı Bill satırında PostgreSQL `FOR UPDATE` kilidi alan bir transaction içinde yürütülür. Bu, durum doğrulaması ve bağlı kayıt değişikliklerini aynı Bill için sıraya alır.
+Bill üzerindeki mutasyonlar, hesaplama ve Bill ayrıntı okuması, aynı Bill satırında PostgreSQL `FOR UPDATE` kilidi alan bir transaction içinde yürütülür. Ayrıntı okumasında Bill/Items/Participants ve ItemSelections bu kilit altında okunur; böylece bağlı kayıtlar tutarlı bir snapshot oluşturur.
 
 ### API
 
@@ -75,7 +75,9 @@ Bill üzerindeki mutasyonlar ve hesaplama, aynı Bill satırında PostgreSQL `FO
 
 Bill oluşturan ve katılan participant'a 32 byte kriptografik rastgelelikten türetilen erişim token'ı bir kez verilir. `BillService` yalnızca SHA-256 hash'ini `Participant.AccessTokenHash` alanına kaydeder ve sonraki değişiklik akışlarında token'dan participant'ı belirler. API response ve `BillUpdated` snapshot'ları entity'leri doğrudan serialize etmez; erişim token'ı veya hash içermez. Önceki migration'lardan kalan participant kayıtlarının hash alanı nullable olduğu için verileri korunur, fakat bu kayıtlar yeni token olmadan değişiklik isteği yapamaz.
 
-Fiş parse endpoint'i host bearer token'ını ve `Active` Bill durumunu doğrular. Yüklemeyi 10 MB ile sınırlar ve JPEG/PNG/WebP imza kontrolü yapar. Parse sonucu persistence'a yazılmaz. Başarılı Bill mutasyonlarından sonra `BillUpdated` olayı Bill'in SignalR grubuna gönderilir; yalnız parse işleminde yayın yapılmaz. SignalR bağlantısı `JoinBill(code, accessToken)` çağrısıyla token doğrulanmadan gruba eklenmez.
+Fiş parse endpoint'i host bearer token'ını ve `Active` Bill durumunu doğrular. Yüklemeyi 10 MB ile sınırlar ve JPEG/PNG/WebP imza kontrolü yapar. Parse sonucu persistence'a yazılmaz. Başarılı Bill mutasyonlarından sonra `BillUpdated` olayı Bill'in SignalR grubuna gönderilir; yalnız parse işleminde yayın yapılmaz. SignalR `JoinBill(code, accessToken)` çağrısı token'ı doğrular, bağlantıyı gruba ekler ve döndürülecek güncel Bill snapshot'ını grup üyeliğinden sonra yeniden okur.
+
+`Program.cs`, proxy'nin ilettiği istemci IP ve protokol başlıklarını işler. Masa kurma/katılma isteklerine IP başına 10 dakikada 30, fiş parse isteklerine IP başına 10 dakikada 10 deneme sınırı uygular; aşımda 429 döner. Derlenmiş React dosyaları `wwwroot` içindeyse API bunları ve istemci rotaları için `index.html` fallback'ini aynı origin'den sunar. `/api` ve `/hubs` yolları bu fallback'in dışındadır.
 
 ### Frontend
 
@@ -83,11 +85,17 @@ Frontend React 19, TypeScript 5.9 ve Vite 7 kullanır; yönlendirme `react-route
 
 Rotalar: `/` (karşılama), `/masa-kur` (host adıyla masa kurma), `/katil/:code?` (kod ve adla katılma) ve `/masa/:code` (masa). Masa ekranı duruma göre lobi/misafir bekleme, fiş okutma (`Scan`), fiş düzeltme (`Review`), kalem seçimi (`Selection`) ve hesap sonucu (`Result`) görünümlerini gösterir.
 
-`useBill` masanın tek kaynağıdır: Bill önce `GET /api/bills/{code}` ile okunur, cihazda token varsa SignalR grubuna `JoinBill` ile girilir ve her `BillUpdated` olayı ile mutasyon yanıtı güncel snapshot'ı getirir. Katılımcı erişim token'ı ve kimlik bilgisi `localStorage`da masa koduna göre (`bsa:session:<KOD>`) saklanır; kayıt kaybolursa masadaki yer geri alınamaz. Hata türleri HTTP durum kodundan türetilir; backend `detail` metinleri iş mantığı için kullanılmaz.
+`useBill` masanın tek kaynağıdır: Bill önce `GET /api/bills/{code}` ile okunur, cihazda token varsa SignalR grubuna `JoinBill` ile girilir ve her `BillUpdated` olayı ile mutasyon yanıtı güncel snapshot'ı getirir. Yeniden bağlantıda gruba tekrar katılır. Katılımcı erişim token'ı ve kimlik bilgisi `localStorage`da masa koduna göre (`bsa:session:<KOD>`) saklanır; kayıt kaybolursa masadaki yer geri alınamaz. Hata türleri HTTP durum kodundan türetilir; backend `detail` metinleri iş mantığı için kullanılmaz. UI Türkçe durum ve hata mesajları gösterir; `Quantity` kapasite çakışmasında masayı yeniden okuyup ilgili kalemdeki mevcut dağılımı gösterir.
+
+`describeItems` kalemlerin dağıtım durumunu yalnızca arayüz için türetir. Bütün kalemler tamamlanınca `useCalculation` backend'den hesap sonucunu ister; parasal payları frontend hesaplamaz. Host için finalize kontrol ekranı eksik kalemleri ve hazır olmayan katılımcıları gösterir; kesin doğrulama backend'de yapılır. `Finalized` Bill'de sonuç ve kişinin kendi dökümü gösterilir; host yeniden açabilir.
 
 Para girişleri `parseMoney` ile okunur: virgül ondalık ayracıdır ve noktalar binliktir (`1.234,50`); virgülsüz yazımda `95.50` ondalık, `1.250` ve `1.234.567` binlik sayılır. Geçersiz ya da ikiden fazla ondalıklı giriş ve 99.999.999,99 üstü tutar gönderilmeden reddedilir.
 
 Geliştirmede Vite, `/api` ve `/hubs` (WebSocket dahil) isteklerini `http://localhost:5037` adresindeki backend'e yönlendirir; backend'de CORS yapılandırması yoktur.
+
+## Dağıtım
+
+Kök `Dockerfile` üç aşamalıdır: Node 22 Alpine ile `npm ci` ve frontend build, .NET 10 SDK ile API publish, ardından .NET 10 ASP.NET runtime imajı. Frontend çıktısı son imajdaki `wwwroot` dizinine kopyalanır; API ve frontend tek container'da çalışır. `ASPNETCORE_ENVIRONMENT=Production` ayarlanır ve işlem `app` kullanıcısıyla başlar. Platform `PORT` ortam değişkeni verirse API `0.0.0.0` üzerinde o portu dinler; aksi halde imajın varsayılan port ayarı kullanılır. Veritabanı bağlantısı ve Gemini anahtarı runtime configuration ile sağlanmalıdır. Repository belirli bir canlı adres veya barındırma servisi yapılandırması içermez.
 
 ## Kalıcılık modeli
 
@@ -131,11 +139,7 @@ Frontend:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 npm run build
 ```
-
-## Henüz bulunmayan teknik yapılar
-
-Repository'de test projesi, CQRS, MediatR veya Unit of Work bulunmaz. HTTP API ASP.NET Core Controller'ları, gerçek zamanlı bildirimler SignalR ile uygulanmıştır.

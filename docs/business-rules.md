@@ -1,6 +1,6 @@
 # İş Kuralları
 
-Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henüz uygulanmamış kuralları kaydeder. Henüz kararı verilmemiş davranışlar ayrı bölümde tutulur.
+Bu belge MVP'de uygulanan kesin iş kurallarını kaydeder. Yeni bir davranış için karar gerekirse açık kararlar bölümünde tutulur.
 
 ## Bill oluşturma
 
@@ -61,6 +61,7 @@ Bu belge mevcut kodda uygulanan kurallar ile MVP için kesinleşmiş fakat henü
 - Bir `Quantity` item için toplam selection quantity hiçbir durumda `BillItem.Quantity` değerini aşamaz; bu iş kuralı eş zamanlı işlemlerde de korunmalıdır.
 - MVP'de Bill başına item sayısı için ayrıca bir üst sınır uygulanmaz.
 - Eş zamanlı seçim yazımları Bill satırı üzerinde PostgreSQL `FOR UPDATE` kilidiyle sıraya alınır.
+- Kapasite çakışmasında backend isteği `ProblemDetails` ile reddeder. Frontend güncel Bill durumunu yeniden okur; sahipsiz adet kalmadıysa kalemin dağılımını kullanıcıya gösterir.
 - `Shared` item seçiminde adet business anlamı taşımaz; kayıt `Quantity = 1` ile tutulur.
 - Shared selection quantity değeri değiştirilemez.
 - Participant bir selection ekler, kaldırır veya quantity değerini gerçekten değiştirirse ready durumu `false` yapılır.
@@ -119,7 +120,3 @@ Bu bölüm hesaplama kurallarını tanımlar.
   ```text
   sum(participant totals) == sum(BillItem.Quantity * BillItem.UnitPrice) + ServiceCharge
   ```
-
-## Açık ürün kararları
-
-Backend kapsamında açık business kararı yoktur. Quantity kapasite çakışmasının kullanıcıya sunumu ve `ProblemDetails` hata yanıtlarının dil/formatı frontend'de belirlenir.
