@@ -6,7 +6,7 @@ Arkadaşlarla restoran hesabını bölüşmenin en kolay yolu.
 
 **Fişi çek → QR'ı ortaya koy → herkes kendi yediğini seçsin → kimin ne kadar ödeyeceği kuruşu kuruşuna belli olsun.**
 
-**Canlı:** [ben sana atarım](https://bensanaatarim.onrender.com/)
+**Canlı:** [ben sana atarım](https://bensanaatarim.com.tr/)
 
 ## Nasıl çalışır?
 
